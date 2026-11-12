@@ -1,0 +1,15 @@
+{
+  "name": "Mr. Puzzles Mirror",
+  "short_name": "Mr. Puzzles",
+  "description": "Become Mr. Puzzles: browser AR face filter driven by his original face rig.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#140c1f",
+  "theme_color": "#140c1f",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
