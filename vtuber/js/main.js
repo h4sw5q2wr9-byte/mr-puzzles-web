@@ -18,7 +18,7 @@ const state = {
   facing: 'user',          // user | environment
   poseModel: 'lite',       // lite | full
   delegate: 'GPU',
-  mirror: true,
+  mirror: false,           // false = your left is his left (head AND face); true = selfie mirror
   showFeed: true,
   bg: '#2b2140',
   baseline: null,          // the person's calibrated neutral face (FaceDriver baselines)
@@ -26,7 +26,10 @@ const state = {
 };
 // settings from older versions: keep the user's sliders, add the new options with their defaults
 state.tuning = { ...DEFAULT_TUNING, ...(saved.v >= 2 ? saved.tuning : { ...(saved.tuning || {}), style: DEFAULT_TUNING.style }) };
-state.v = 2; delete state.neutral;
+// v3: face features now follow the same left/right convention as the head (earlier versions mirrored
+// only the face, so a left smile lifted his right side) -> reset to the consistent default once
+if (!(saved.v >= 3)) state.mirror = false;
+state.v = 3; delete state.neutral;
 const persist = () => { try { localStorage.setItem('mp-settings', JSON.stringify(state)); } catch {} };
 
 // ---------------------------------------------------------------- three.js
@@ -159,7 +162,7 @@ function processFrame(src, nowMs, dt) {
     lastFace = { bs: inp.bs, weights: r.weights, cues: r.cues, mood: r.mood, conf: r.conf };
     const fs = Kalidokit.Face.solve(fl, { runtime: 'mediapipe', imageSize: size, smoothBlink: false });
     const hipsYaw = 0;
-    if (fs) rig.applyHead(fs, dt, hipsYaw);
+    if (fs) rig.applyHead(fs, dt, hipsYaw, state.mirror);
   } else { avatar.setFace(null, dt); rig.relaxHead(dt); }
   // body ----------------------------------------------------------------
   let pose = null, hands = null;

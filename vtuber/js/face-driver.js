@@ -43,7 +43,7 @@ export class FaceDriver {
   /**
    * one frame. face: {bs, lm: (i)=>[x,y] | null, yaw} ; returns {weights, mood, cues, conf, calibrated}
    */
-  step({ bs, lm = null, yaw = 0 }, dt, { tuning = DEFAULT_TUNING, mirror = true } = {}) {
+  step({ bs, lm = null, yaw = 0 }, dt, { tuning = DEFAULT_TUNING, mirror = false } = {}) {
     this.t += dt;
     const geoRaw = lm ? faceGeometry(lm) : null;
     let justCalibrated = false;

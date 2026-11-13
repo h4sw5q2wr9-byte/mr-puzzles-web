@@ -42,10 +42,13 @@ export class BodyRig {
   }
 
   /** head rotation from Kalidokit.Face.solve (radians). Split between neck and head. */
-  applyHead(face, dt, hipsYaw = 0) {
+  /** mirror=false: the avatar copies you like a puppet facing you (your left = his left; Kalidokit's
+   *  default on an unmirrored camera image). mirror=true: like a selfie mirror. The face features use
+   *  the SAME flag (main.js), so head and face can never disagree. */
+  applyHead(face, dt, hipsYaw = 0, mirror = false) {
     if (!face) return;
-    const h = face.head;
-    const t = { x: clamp(h.x, -0.8, 0.8), y: clamp(h.y - hipsYaw, -0.9, 0.9), z: clamp(h.z, -0.6, 0.6) };
+    const h = face.head, m = mirror ? -1 : 1;
+    const t = { x: clamp(h.x, -0.8, 0.8), y: clamp(m * h.y - hipsYaw, -0.9, 0.9), z: clamp(m * h.z, -0.6, 0.6) };
     this.rot('Neck', t, 0.55, 0.35, dt);
     this.rot('Head', t, 0.45, 0.35, dt);
   }

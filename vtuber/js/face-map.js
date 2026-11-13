@@ -9,9 +9,10 @@
 //           one-sided smiles barely move mouthSmile; eyeWide stays < 0.1 even in shock; squinting raises
 //           browDown; screaming / grimacing reads as a big smile.
 //
-// Side convention: the avatar behaves like a MIRROR (same as Kalidoface/Kalidokit): the user's left side
-// drives the avatar side that appears on the same side of the screen, i.e. the avatar's RIGHT.
-// `mirror:false` maps user-left -> avatar-left. MediaPipe's Left/Right = the subject's own sides.
+// Side convention (default, mirror:false): the avatar copies you like a puppet facing you - YOUR left
+// eye / brow / mouth corner drives HIS left, exactly like the head rotation (Kalidokit on the unmirrored
+// camera image). mirror:true flips face AND head together (selfie mirror). MediaPipe's Left/Right are the
+// subject's own sides (verified on tests/signals/20832: the closed eye is landmark 263 = eyeBlinkLeft).
 
 export const AVATAR_GROUPS = [
   'eyeBlink_L', 'eyeBlink_R', 'eyeWide_L', 'eyeWide_R', 'eyeSquint_L', 'eyeSquint_R', 'eyeHappy_L', 'eyeHappy_R',
@@ -112,7 +113,7 @@ export function signals(b, geom) {
  * @param {Object} opts {mirror, neutral, tuning, geom, conf}
  * @returns {{weights:Object<string,number>, mood:{red, green, anger, shade, shadeL, shadeR}, cues:Object}}
  */
-export function mapFace(bsRaw, { mirror = true, neutral = null, tuning = DEFAULT_TUNING, geom = null, conf = 1 } = {}) {
+export function mapFace(bsRaw, { mirror = false, neutral = null, tuning = DEFAULT_TUNING, geom = null, conf = 1 } = {}) {
   const b = calibrated(bsRaw, neutral);
   const T = { ...DEFAULT_TUNING, ...tuning };
   const St = STYLES[T.style] || STYLES.zamination;
