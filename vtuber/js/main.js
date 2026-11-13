@@ -5,7 +5,7 @@ import { BodyRig, solvePose, solveHands } from './body-rig.js';
 import { Tracker } from './tracker.js';
 import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js';
 import { FaceDriver, driverInput } from './face-driver.js';
-import { saveModel, loadModel } from './storage.js';
+import { saveModel, loadModel, clearModel } from './storage.js';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -70,8 +70,8 @@ async function useModel(buf, remember = true) {
   await avatar.load(buf);
   rig = new BodyRig(avatar.vrm);
   if (!avatar.hasPuzzlesFace) toast('This VRM has no Mr. Puzzles face groups – only head/body will move.');
-  else if (avatar.missingGroups.length) toast('This is an older MrPuzzles.vrm: import the latest one (⚙︎ → Advanced → Replace the model) for the new eye shapes.', 9000);
-  if (remember) saveModel(buf).catch(() => {});
+  else if (avatar.missingGroups.length) toast('This is an older Mr. Puzzles model: tap ⚙︎ → Advanced → Use built-in Mr. Puzzles for the new eye shapes.', 9000);
+  if (remember) saveModel(buf, { kind: 'custom' }).catch(() => {});
   $('#empty').hidden = true;
   frameCamera(0, true);
   status('');
@@ -80,15 +80,37 @@ $('#file').addEventListener('change', async (e) => {
   const f = e.target.files[0]; if (!f) return;
   try { await useModel(await f.arrayBuffer()); } catch (err) { console.error(err); toast('Could not load that file: ' + err.message); }
 });
+// Mr. Puzzles ships with the site (MrPuzzles.vrm + a tiny version file). It is kept on the device and
+// only downloaded again when the site's version changes. A model the user imported themselves wins.
+async function fetchWithProgress(url, label) {
+  const r = await fetch(url);
+  if (!r.ok || (r.headers.get('content-type') || '').includes('html')) throw new Error('HTTP ' + r.status);
+  const total = +r.headers.get('content-length') || 0;
+  if (!r.body || !total) return r.arrayBuffer();
+  const reader = r.body.getReader(), parts = []; let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read(); if (done) break;
+    parts.push(value); got += value.length; status(`${label} ${Math.round(got / total * 100)} %`);
+  }
+  const out = new Uint8Array(got); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+  return out.buffer;
+}
 async function bootModel() {
   const url = params.get('vrm');
   try {
     if (url) return await useModel(await (await fetch(url)).arrayBuffer(), false);
     const stored = await loadModel();
-    if (stored) return await useModel(stored, false);
-    const r = await fetch('MrPuzzles.vrm');                 // optional: a copy hosted next to the app
-    if (r.ok && (r.headers.get('content-type') || '').indexOf('html') < 0) return await useModel(await r.arrayBuffer(), true);
-  } catch (e) { console.warn(e); }
+    if (stored && stored.meta.kind === 'custom') return await useModel(stored.buf, false);
+    let version = null;
+    try { const r = await fetch('MrPuzzles.version.json', { cache: 'no-cache' }); if (r.ok) version = (await r.json()).version; } catch {}
+    if (stored && stored.meta.kind === 'bundled' && (!version || stored.meta.version === version)) return await useModel(stored.buf, false);
+    if (version) {
+      const buf = await fetchWithProgress('MrPuzzles.vrm?v=' + encodeURIComponent(version), 'Downloading Mr. Puzzles…');
+      saveModel(buf, { kind: 'bundled', version }).catch(() => {});
+      return await useModel(buf, false);
+    }
+    if (stored) return await useModel(stored.buf, false);          // offline: use whatever we have
+  } catch (e) { console.warn(e); status(''); }
   $('#empty').hidden = false;
 }
 
@@ -224,6 +246,7 @@ $('#btn-cal').addEventListener('click', startCalibration);
 $('#btn-rec').addEventListener('click', toggleRecord);
 $('#btn-set').addEventListener('click', () => ($('#settings').hidden = !$('#settings').hidden));
 $('#btn-load').addEventListener('click', () => $('#file').click());
+$('#btn-builtin').addEventListener('click', async () => { await clearModel(); location.reload(); });
 $('#empty-load').addEventListener('click', () => $('#file').click());
 document.querySelectorAll('[data-tint]').forEach((b) => b.addEventListener('click', () => {
   const t = b.dataset.tint; avatar.manualTint = t === 'auto' ? null : { red: t === 'red' ? 1 : 0, green: t === 'green' ? 1 : 0 };

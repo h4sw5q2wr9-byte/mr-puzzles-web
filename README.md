@@ -39,15 +39,17 @@ full body, with the ZAMination-style eyes, brows, rainbow mouth and screen effec
   expressiveness, eye, brow and mouth exaggeration, and smooth/snappy response. Screen effects (a
   brief red flash on sudden anger, eyelid/brow shading, optional green) can each be toggled. All
   settings are remembered on the device.
-* **The model loads automatically after a one-time import.** On first use, tap
-  **Import MrPuzzles.vrm**. It's stored on the device (IndexedDB), and later visits open straight
-  into Mr. Puzzles. The model isn't bundled in this public repo because permission to redistribute
-  it isn't confirmed. If you ever have that permission, put `MrPuzzles.vrm` in `vtuber/` and the app
-  loads it for everyone with no import step.
+* **Mr. Puzzles is built in.** `vtuber/MrPuzzles.vrm` ships with the site and opens
+  automatically. It's kept on the phone and only downloaded again when
+  `vtuber/MrPuzzles.version.json` changes. A user's own .vrm (⚙︎ → Advanced) takes priority.
+* **Credits:** model and rig are BonBon's free fan release "Zamination Style Mr Puzzles Blender 4.0
+  Model/Rig" (https://bonbon099.gumroad.com/l/kbmwom), converted to VRM. Mr. Puzzles © SMG4.
+  This is an unofficial, non-commercial fan project.
 * It loads three.js, three-vrm, Kalidokit and MediaPipe from the jsDelivr CDN, so it needs a
   connection.
-* The source of truth is `mr-puzzles-vtuber/app/` in the private `Claude-Code-Storage` repo
-  (tests, converter and report live there). Copy it here to update.
+* The source of truth is `mr-puzzles-vtuber/app/` and `build/MrPuzzles.vrm` in the private
+  `Claude-Code-Storage` repo (tests, converter and report live there). To update, copy them here and
+  write the VRM's new hash into `MrPuzzles.version.json`.
 * The root app's service worker skips `/vtuber/`, so updates show immediately.
 
 ## Run it

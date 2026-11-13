@@ -60,11 +60,9 @@
 
 <div id="empty" hidden><div class="card">
   <h1>PuzzleVision Cam</h1>
-  <p><b>One-time setup:</b> import <b>MrPuzzles.vrm</b> from your Files app. It is stored on this device only,
-    and Mr. Puzzles loads automatically every time you open the app after that.</p>
-  <button id="empty-load" class="on">Import MrPuzzles.vrm</button>
-  <p class="fine">Why not built in? Permission to re-publish the model isn't confirmed, so the app
-    never hosts it. Your copy never leaves your phone.</p>
+  <p>Couldn't download Mr. Puzzles. Check your connection and reload the page.</p>
+  <button onclick="location.reload()" class="on">Reload</button>
+  <p class="fine" style="margin-top:14px">Or <a href="#" id="empty-load" style="color:inherit">load a .vrm from this device</a>.</p>
 </div></div>
 
 <div id="settings" hidden>
@@ -97,8 +95,11 @@
   <div class="row"><button id="o-reset">Reset calibration &amp; settings</button></div>
   <details><summary>Advanced</summary>
     <label>Processor <select id="o-delegate"><option value="GPU">GPU</option><option value="CPU">CPU</option></select></label>
-    <div class="row"><button id="btn-load">Replace the model (.vrm)…</button></div>
+    <div class="row"><button id="btn-load">Use my own .vrm…</button><button id="btn-builtin">Use built-in Mr. Puzzles</button></div>
   </details>
+  <p class="fine" style="margin-top:12px">Model &amp; rig: “Zamination Style Mr Puzzles” fan model by
+    <a href="https://bonbon099.gumroad.com/l/kbmwom" target="_blank" rel="noopener" style="color:inherit">BonBon</a>.
+    Mr. Puzzles © SMG4. Unofficial, non-commercial fan project.</p>
 </div>
 
 <div class="bar">
