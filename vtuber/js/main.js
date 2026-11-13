@@ -70,6 +70,7 @@ async function useModel(buf, remember = true) {
   await avatar.load(buf);
   rig = new BodyRig(avatar.vrm);
   if (!avatar.hasPuzzlesFace) toast('This VRM has no Mr. Puzzles face groups – only head/body will move.');
+  else if (avatar.missingGroups.length) toast('This is an older MrPuzzles.vrm: import the latest one (⚙︎ → Advanced → Replace the model) for the new eye shapes.', 9000);
   if (remember) saveModel(buf).catch(() => {});
   $('#empty').hidden = true;
   frameCamera(0, true);

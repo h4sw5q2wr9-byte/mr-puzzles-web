@@ -22,7 +22,9 @@ export class Avatar {
     vrm.scene.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
     this.scene.add(vrm.scene);
     this.groups = Object.keys(vrm.blendShapeProxy._blendShapeGroups);
-    this.hasPuzzlesFace = AVATAR_GROUPS.every((g) => this.groups.includes(g));
+    // core Mr. Puzzles groups -> full face; shapes added in later model versions are optional
+    this.hasPuzzlesFace = ['eyeBlink_L', 'eyeWide_L', 'browUp_L', 'mouthSmile_L', 'jawOpen', 'eyeCorrect_L', 'eyeCorrect_R'].every((g) => this.groups.includes(g));
+    this.missingGroups = AVATAR_GROUPS.filter((g) => !this.groups.includes(g));
     // geometric constraints from the model's own morph targets (screen top, rainbow vs eyes, TV top)
     this.constraints = this.hasPuzzlesFace ? buildFaceConstraints(primsFromThree(vrm.scene), FACE_LIMITS) : null;
     // screen effects (shading that follows the brows, red flash, optional green) live in the screen shader
