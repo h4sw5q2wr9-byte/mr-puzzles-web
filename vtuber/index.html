@@ -9,35 +9,65 @@
 <title>PuzzleVision Cam</title>
 <link rel="manifest" href="manifest.json">
 <style>
-  :root { --bg:#1c1529; --panel:rgba(28,21,41,.86); --ink:#f4effa; --muted:#b3a6c9; --accent:#e8486f; --accent2:#46c9c4; --line:rgba(255,255,255,.12); }
+  :root { --bg:#1c1529; --panel:rgba(28,21,41,.88); --ink:#f4effa; --muted:#b3a6c9; --accent:#e8486f; --accent2:#46c9c4; --line:rgba(255,255,255,.13); --tv:#c9b8dc; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:15px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
-  #stage { position:fixed; inset:0; width:100vw; height:100dvh; display:block; touch-action:none; }
-  #feed { position:fixed; top:calc(env(safe-area-inset-top) + 10px); left:10px; width:28vw; max-width:180px; border-radius:12px; overflow:hidden; border:1px solid var(--line); box-shadow:0 6px 20px rgba(0,0,0,.4); }
-  #feed video { width:100%; display:block; }
-  video.mirror { transform:scaleX(-1); }
-  #hud { position:fixed; top:calc(env(safe-area-inset-top) + 10px); right:12px; font-size:12px; color:var(--muted); text-align:right; text-shadow:0 1px 2px #000; }
-  #status, #toast { position:fixed; left:50%; transform:translateX(-50%); background:var(--panel); padding:8px 14px; border-radius:20px; border:1px solid var(--line); font-size:14px; max-width:90vw; text-align:center; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
-  #status { top:42%; } #toast { bottom:calc(env(safe-area-inset-bottom) + 140px); }
-  .bar { position:fixed; left:0; right:0; bottom:0; padding:10px 10px calc(env(safe-area-inset-bottom) + 10px); background:linear-gradient(transparent, rgba(16,11,26,.92) 30%); }
-  .row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:8px; }
-  button, select { font:inherit; color:var(--ink); background:rgba(255,255,255,.08); border:1px solid var(--line); border-radius:12px; padding:10px 14px; min-height:44px; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:15px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; overflow:hidden; -webkit-user-select:none; user-select:none; }
+  #arbg, #stage, #ovfull { position:fixed; inset:0; width:100vw; height:100dvh; display:block; touch-action:none; }
+  #arbg { z-index:0; } #stage { z-index:1; } #ovfull { z-index:2; pointer-events:none; }
+  /* camera preview (Studio / Replay) */
+  #preview { position:fixed; z-index:3; overflow:hidden; border-radius:14px; border:2px solid var(--tv); background:#000; box-shadow:0 8px 24px rgba(0,0,0,.45); touch-action:none; }
+  #preview video, #preview img, #preview canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  #preview.pip { top:calc(env(safe-area-inset-top) + 58px); left:10px; width:min(30vw,190px); aspect-ratio:4/3; }
+  #preview.large { top:calc(env(safe-area-inset-top) + 58px); left:10px; width:min(52vw,420px); aspect-ratio:4/3; }
+  body.side #preview { top:calc(env(safe-area-inset-top) + 52px); left:0; width:50vw; bottom:150px; height:auto; border-radius:0; border-width:0 2px 0 0; }
+  body.side #stage { left:50vw; width:50vw; }
+  @media (orientation:portrait) {
+    body.side #preview { width:100vw; height:38dvh; bottom:auto; border-width:0 0 2px 0; }
+    body.side #stage { left:0; width:100vw; top:calc(env(safe-area-inset-top) + 52px + 38dvh); height:calc(100dvh - 38dvh - env(safe-area-inset-top) - 52px); }
+  }
+  .mirror { transform:scaleX(-1); }
+  /* top bar */
+  .top { position:fixed; z-index:5; top:0; left:0; right:0; padding:calc(env(safe-area-inset-top) + 8px) 10px 6px; display:flex; align-items:center; gap:8px; background:linear-gradient(rgba(16,11,26,.85), transparent); }
+  .brand { font:italic 700 16px Georgia,serif; letter-spacing:.02em; color:var(--tv); white-space:nowrap; }
+  #hud { position:fixed; z-index:5; top:calc(env(safe-area-inset-top) + 54px); right:10px; font-size:11px; color:var(--muted); text-align:right; text-shadow:0 1px 2px #000; white-space:pre; pointer-events:none; }
+  .top .seg button { white-space:nowrap; }
+  @media (max-width:520px) { .brand { display:none; } .top { justify-content:center; } }
+  #status, #toast { position:fixed; z-index:9; left:50%; transform:translateX(-50%); background:var(--panel); padding:8px 14px; border-radius:20px; border:1px solid var(--line); font-size:14px; max-width:90vw; text-align:center; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  #status { top:42%; } #toast { bottom:calc(env(safe-area-inset-bottom) + 150px); }
+  .bar { position:fixed; z-index:5; left:0; right:0; bottom:0; padding:8px 10px calc(env(safe-area-inset-bottom) + 10px); background:linear-gradient(transparent, rgba(16,11,26,.94) 28%); }
+  .row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:7px; align-items:center; }
+  button, select { font:inherit; color:var(--ink); background:rgba(255,255,255,.08); border:1px solid var(--line); border-radius:12px; padding:9px 13px; min-height:42px; }
   button.on { background:var(--accent); border-color:transparent; }
   .seg { display:flex; background:rgba(255,255,255,.06); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-  .seg button { border:0; border-radius:0; background:transparent; }
+  .seg button { border:0; border-radius:0; background:transparent; padding:8px 11px; }
   .seg button.on { background:var(--accent2); color:#102020; font-weight:600; }
-  #btn-cam { min-width:84px; font-weight:600; background:var(--accent2); color:#102020; }
+  .seg button small { font-size:10px; opacity:.75; display:block; line-height:1; }
+  .top .seg button { min-height:36px; padding:6px 10px; font-size:14px; }
+  #btn-cam { min-width:78px; font-weight:600; background:var(--accent2); color:#102020; }
   #btn-cam.on { background:var(--accent); color:#fff; }
   #btn-rec.on { background:#d22; }
-  #settings { position:fixed; left:10px; right:10px; bottom:calc(env(safe-area-inset-bottom) + 130px); max-height:56dvh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); }
-  #settings h3 { margin:4px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
-  #settings label { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:6px 0; }
+  .icon { min-width:44px; padding:9px 10px; }
+  /* replay transport */
+  #replaybar { display:none; } body.replay #replaybar { display:flex; }
+  #scrub { flex:1; min-width:120px; accent-color:var(--accent2); }
+  #rtime { font-size:12px; color:var(--muted); min-width:72px; text-align:right; font-variant-numeric:tabular-nums; }
+  /* pose buttons (optional) */
+  #poses { display:none; } body.poses #poses { display:flex; }
+  #poses button { min-height:36px; padding:5px 9px; font-size:18px; }
+  /* settings sheet */
+  #settings { position:fixed; z-index:8; left:10px; right:10px; bottom:calc(env(safe-area-inset-bottom) + 140px); max-height:min(62dvh, calc(100dvh - env(safe-area-inset-top) - 170px)); overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); max-width:560px; margin:0 auto; }
+  #settings h3 { margin:12px 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); }
+  #settings h3:first-child { margin-top:0; }
+  #settings label { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:5px 0; }
   #settings input[type=range] { flex:1; max-width:55%; accent-color:var(--accent2); }
-  #empty { position:fixed; inset:0; display:grid; place-items:center; text-align:center; padding:24px; }
+  #settings details { margin-top:8px; } #settings summary { padding:6px 0; color:var(--muted); cursor:pointer; }
+  .fine { font-size:12px; color:var(--muted); }
+  #empty { position:fixed; z-index:7; inset:0; display:grid; place-items:center; text-align:center; padding:24px; }
   #empty .card { max-width:360px; background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:22px; }
   #empty h1 { font-size:22px; margin:0 0 8px; } #empty p { color:var(--muted); margin:0 0 16px; }
-  .fine { font-size:12px; color:var(--muted); }
-  #settings details { margin-top:10px; color:var(--muted); } #settings summary { padding:6px 0; }
+  /* clean mode (OBS / recordings): only the picture */
+  body.clean .top, body.clean .bar, body.clean #settings, body.clean #toast, body.clean #preview { display:none !important; }
+  body.ar #preview { display:none; }
   [hidden] { display:none !important; }
 </style>
 <script type="importmap">
@@ -51,12 +81,20 @@
 </script>
 </head>
 <body>
+<canvas id="arbg"></canvas>
 <canvas id="stage"></canvas>
-<div id="feed"><video id="video" playsinline muted autoplay></video></div>
-<div id="hud"></div>
+<canvas id="ovfull"></canvas>
+<div id="preview" class="pip"><video id="video" playsinline muted autoplay></video><img id="photo" alt="" hidden><canvas id="ov"></canvas></div>
 <div id="status" hidden></div>
 <div id="toast" hidden></div>
 <input id="file" type="file" accept=".vrm,.glb,model/gltf-binary,application/octet-stream" hidden>
+<input id="media" type="file" accept="image/*,video/*" hidden>
+
+<div class="top">
+  <span class="brand">PuzzleVision</span>
+  <div class="seg" id="views"><button data-view="studio">Studio</button><button data-view="ar">AR Lens</button><button data-view="replay">Replay</button></div>
+</div>
+<div id="hud"></div>
 
 <div id="empty" hidden><div class="card">
   <h1>PuzzleVision Cam</h1>
@@ -66,7 +104,7 @@
 </div></div>
 
 <div id="settings" hidden>
-  <h3>Tracking style</h3>
+  <h3>Expression</h3>
   <label>Style <select id="o-style">
     <option value="zamination">ZAMination (dramatic cartoon)</option>
     <option value="balanced">Balanced</option>
@@ -77,25 +115,50 @@
   <label>Eyebrow exaggeration <input id="t-browIntensity" type="range" min="0.3" max="2.5" step="0.05"></label>
   <label>Mouth exaggeration <input id="t-mouthIntensity" type="range" min="0.3" max="2" step="0.05"></label>
   <label>Pupil movement <input id="t-gaze" type="range" min="0" max="2.5" step="0.05"></label>
+  <label>Arm &amp; hand drama <input id="o-armGain" type="range" min="1" max="1.5" step="0.02"></label>
   <label>Smooth ↔ Snappy <input id="t-responsiveness" type="range" min="0.4" max="2.5" step="0.05"></label>
-  <label>Mirror like a selfie (flip left/right) <input id="o-mirror" type="checkbox"></label>
+  <label>Mouth also moves with my voice (mic) <input id="o-lipsync" type="checkbox"></label>
+  <label>Show pose buttons <input id="o-poses" type="checkbox"></label>
+
+  <h3>Camera &amp; view</h3>
+  <label>Camera <select id="o-facing"><option value="user">Front (selfie)</option><option value="environment">Back</option></select></label>
+  <label>Mirror (flip left/right) <input id="o-mirror" type="checkbox"></label>
+  <label>Camera preview (Studio) <select id="o-preview"><option value="pip">Small</option><option value="large">Large</option><option value="side">Side by side</option><option value="hidden">Hidden</option></select></label>
+  <label>Background <select id="o-bg"><option value="#2b2140">PuzzleVision purple</option><option value="#00b140">Green screen</option><option value="#0047bb">Blue screen</option><option value="#111111">Black</option><option value="#f2f0f5">White</option><option value="transparent">Transparent (exports)</option></select></label>
+
+  <h3>AR Lens</h3>
+  <label>Replace <select id="o-arMode"><option value="head">Head</option><option value="upper">Upper body</option><option value="full">Full body (experimental)</option></select></label>
+  <label>Hide my real face/body <select id="o-arHide"><option value="none">No</option><option value="blur">Blur me</option><option value="erase">Erase me (blur background)</option></select></label>
+  <label>Size <input id="o-arScale" type="range" min="0.7" max="1.6" step="0.02"></label>
+
   <h3>Screen effects</h3>
   <label>Red flash on sudden anger / shouting <input id="o-mood" type="checkbox"></label>
   <label>Green screen when disgusted <input id="o-green" type="checkbox"></label>
   <label>Eyelid / brow shading <input id="t-shading" type="range" min="0" max="1.5" step="0.05"></label>
-  <div class="row" style="justify-content:flex-start;margin:0 0 8px">
-    <span class="fine" style="align-self:center">Force colour:</span>
+  <label>TV static when tracking is lost <input id="o-static" type="checkbox"></label>
+  <label>Sweat drop &amp; stress lines <input id="o-sweat" type="checkbox"></label>
+  <div class="row" style="justify-content:flex-start;margin:0 0 6px">
+    <span class="fine">Force colour:</span>
     <button data-tint="auto" class="on">Auto</button><button data-tint="red">Red</button><button data-tint="green">Green</button>
   </div>
-  <h3>Camera</h3>
-  <label>Camera <select id="o-facing"><option value="user">Front (selfie)</option><option value="environment">Back</option></select></label>
-  <label>Body model <select id="o-pose"><option value="lite">Lite (faster)</option><option value="full">Full (more accurate)</option></select></label>
-  <label>Show camera preview <input id="o-feed" type="checkbox"></label>
-  <label>Background <select id="o-bg"><option value="#2b2140">PuzzleVision purple</option><option value="#00b140">Green screen</option><option value="#0047bb">Blue screen</option><option value="#111111">Black</option><option value="#f2f0f5">White</option></select></label>
+
+  <h3>Recording</h3>
+  <label>Record microphone audio <input id="o-recAudio" type="checkbox"></label>
+  <label>Hide buttons while recording <input id="o-recClean" type="checkbox"></label>
+
+  <h3>Tracking view</h3>
+  <label>Show tracking points <select id="o-debug"><option value="off">Off</option><option value="points">Points</option><option value="mesh">Face mesh</option><option value="all">Everything</option></select></label>
+  <label>Performance panel <input id="o-perf" type="checkbox"></label>
+  <p class="fine">Tracking points are never included in screenshots or recordings.</p>
+
   <div class="row"><button id="o-reset">Reset calibration &amp; settings</button></div>
   <details><summary>Advanced</summary>
+    <label>Body model <select id="o-pose"><option value="lite">Lite (faster)</option><option value="full">Full (more accurate)</option></select></label>
     <label>Processor <select id="o-delegate"><option value="GPU">GPU</option><option value="CPU">CPU</option></select></label>
+    <label>Automatic quality fallback <input id="o-auto" type="checkbox"></label>
     <div class="row"><button id="btn-load">Use my own .vrm…</button><button id="btn-builtin">Use built-in Mr. Puzzles</button></div>
+    <p class="fine">OBS / streaming: open this page with <code>?obs</code> for a clean view (add <code>&amp;bg=transparent</code> or <code>&amp;bg=green</code>).</p>
+    <p class="fine" id="version"></p>
   </details>
   <p class="fine" style="margin-top:12px">Model &amp; rig: “Zamination Style Mr Puzzles” fan model by
     <a href="https://bonbon099.gumroad.com/l/kbmwom" target="_blank" rel="noopener" style="color:inherit">BonBon</a>.
@@ -103,16 +166,28 @@
 </div>
 
 <div class="bar">
+  <div class="row" id="poses">
+    <button data-pose="shock" title="Shock">😱</button><button data-pose="rage" title="Rage">😡</button><button data-pose="smug" title="Smug">😏</button>
+    <button data-pose="sideways" title="C'mon dude">😬</button><button data-pose="sad" title="Sad">🥺</button><button data-pose="laugh" title="Laugh">😆</button><button data-pose="dead" title="Dead tired">😵</button>
+  </div>
+  <div class="row" id="replaybar">
+    <button id="btn-import">Import…</button>
+    <button id="btn-play" class="icon">▶︎</button>
+    <button id="btn-restart" class="icon">⟲</button>
+    <input id="scrub" type="range" min="0" max="1" step="0.001" value="0">
+    <span id="rtime">0:00</span>
+  </div>
   <div class="row">
-    <div class="seg"><button data-mode="face">Face</button><button data-mode="upper">Upper body</button><button data-mode="full">Full body</button></div>
+    <div class="seg" id="tracks"><button data-track="face">Face</button><button data-track="hands">Face + Hands</button><button data-track="full">Full body<small>experimental</small></button></div>
   </div>
   <div class="row">
     <button id="btn-cam">Start</button>
     <button id="btn-cal">Calibrate</button>
-    <button id="btn-rec">● Rec</button>
-    <button id="btn-set">⚙︎</button>
+    <button id="btn-shot" class="icon" title="Screenshot">📷</button>
+    <button id="btn-rec" title="Record">● Rec</button>
+    <button id="btn-set" class="icon" title="Settings">⚙︎</button>
   </div>
 </div>
-<script type="module" src="js/main.js"></script>
+<script type="module" src="js/main.js?v=20261113.1012-a627f0d"></script>
 </body>
 </html>
