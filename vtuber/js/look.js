@@ -4,6 +4,13 @@
 // tone-mapped, so expressions keep their exact colours. "Toon" restores the original VRM (MToon) look.
 // THREE is passed in so the same code runs in the app and the test harness.
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+// Quality modes:
+//   low    : the original flat VRM (MToon) look - fastest
+//   medium : lit materials + light rig + soft shadows (previous "Studio")
+//   high   : medium + fabric sheen (fuzzy gloves / sleeves), sharper shadows, rim-light shadows, full
+//            screen resolution. (A post-processing chain with SSAO / bloom was tried: on three r138 it
+//            washed the image out and broke the face-over-body pass, and is too heavy for phones.)
+const FACE_LAYER = 1;
 
 const SCREEN = ['EyeWhite', 'Ink', 'Iris', 'EyeShadow', 'Mouth', 'MouthInterior', 'Screen'];
 // per-material surface: roughness, metalness, clearcoat, fabric bump strength
@@ -60,6 +67,10 @@ export function installLook(THREE, { renderer, scene, vrm }) {
     studio.add(key, key.target, rimL, rimL.target, rimR, rimR.target, fill, hemi);
   }
   scene.add(toon, studio);
+  // high: the glowing screen lights up its surroundings (bezel, bow tie, hands in front of it)
+  const glow = new THREE.PointLight(0xf3f6e0, 0.0, 0.7, 2);
+  const head = vrm.humanoid.getBoneNode('head');
+  if (head) { head.add(glow); glow.position.set(0, 0.13, -0.16); }   // just in front of the screen (VRM faces -Z)
   // soft contact shadow on an invisible floor
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.ShadowMaterial({ opacity: 0.35 }));
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
@@ -73,40 +84,58 @@ export function installLook(THREE, { renderer, scene, vrm }) {
   vrm.scene.traverse((o) => {
     if (!o.isMesh) return;
     const m = [].concat(o.material)[0];
-    if (SCREEN.includes(m.name)) { m.toneMapped = false; return; }     // the 2D face / screen: unlit, exact colours
+    if (SCREEN.includes(m.name)) { m.toneMapped = false; o.layers.set(FACE_LAYER); return; }     // the 2D face / screen: unlit, exact colours
     const s = SURF[m.name] || { r: 0.6, m: 0 };
     const c = m.color || (m.uniforms && m.uniforms.color && m.uniforms.color.value);
     const col = new THREE.Color(1, 1, 1);
     if (c) col.setRGB(c.x ?? c.r, c.y ?? c.g, c.z ?? c.b).convertSRGBToLinear();   // VRM colours are sRGB
     if (m.map) m.map.encoding = THREE.sRGBEncoding;
-    const P = s.cc ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+    const P = (s.cc || s.bump) ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
     const nm = new P({
       name: m.name, color: col, map: m.map || null, roughness: s.r, metalness: s.m, envMap: env, envMapIntensity: 0.35,
       transparent: m.transparent, alphaTest: m.alphaTest || 0, side: m.side,
     });
     if (s.cc) { nm.clearcoat = s.cc; nm.clearcoatRoughness = 0.35; }
-    if (s.bump) { nm.bumpMap = fabric; nm.bumpScale = 0.0035 * s.bump; nm.roughness = Math.min(1, s.r + 0.05); }
+    if (s.bump) { nm.sheenColor = new THREE.Color(0xd9ccff); nm.sheenRoughness = 0.7; nm.bumpMap = fabric; nm.bumpScale = 0.0035 * s.bump; nm.roughness = Math.min(1, s.r + 0.05); }
+    nm.userData.fabric = m.name === 'ClothWhite';      // the fuzzy white gloves / sleeves of the renders
     swaps.push({ mesh: o, toonMat: o.material, studioMat: nm });
     o.castShadow = true; o.receiveShadow = true;
   });
 
   const api = {
-    mode: 'studio',
+    mode: 'medium',
     set(mode) {
+      mode = mode === 'studio' ? 'medium' : mode === 'toon' ? 'low' : mode;
       api.mode = mode;
-      const st = mode === 'studio';
-      for (const s of swaps) s.mesh.material = st ? s.studioMat : s.toonMat;
-      toon.visible = !st; studio.visible = st; floor.visible = st;
-      renderer.shadowMap.enabled = st; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      renderer.toneMapping = st ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
-      renderer.toneMappingExposure = st ? 1.0 : 1;
+      const lit = mode !== 'low', high = mode === 'high';
+      for (const s of swaps) {
+        s.mesh.material = lit ? s.studioMat : s.toonMat;
+        // fuzzy fabric (gloves, sleeves) in high quality
+        if (s.studioMat.userData.fabric && 'sheen' in s.studioMat) { s.studioMat.sheen = high ? 1 : 0; }
+      }
+      toon.visible = !lit; studio.visible = lit; floor.visible = lit;
+      renderer.shadowMap.enabled = lit; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      const key = studio.children[0];
+      const ms = high ? 2048 : 1024;
+      if (key.shadow.mapSize.x !== ms) { key.shadow.mapSize.set(ms, ms); key.shadow.map?.dispose(); key.shadow.map = null; }
+      renderer.toneMapping = lit ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+      renderer.toneMappingExposure = 1.0;
       renderer.physicallyCorrectLights = false;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, high ? 3 : mode === 'medium' ? 2 : 1.5));
+      // high: the left violet rim light casts shadows too (deeper contrast, like the renders)
+      const rimL = studio.children[2];
+      rimL.castShadow = high; rimL.shadow.mapSize.set(1024, 1024); rimL.shadow.bias = -0.0005; rimL.shadow.normalBias = 0.02;
+      key.shadow.radius = high ? 3 : 4;
+      glow.intensity = high ? 1.6 : 0;
+      rimL.intensity = high ? 18 : 14; studio.children[4].intensity = high ? 10 : 8;
       // materials must recompile after tone-mapping / shadow changes
       vrm.scene.traverse((o) => { if (o.isMesh) [].concat(o.material).forEach((m) => (m.needsUpdate = true)); });
     },
+    /** draw one frame */
+    render(camera) { camera.layers.enable(FACE_LAYER); renderer.render(scene, camera); },
     /** keep the contact shadow under the feet */
-    update() { const f = vrm.humanoid.getBoneNode('leftFoot'); if (f) floor.position.y = 0.002; },
-    dispose() { scene.remove(toon, studio, floor); },
+    update() { floor.position.y = 0.002; },
+    dispose() { scene.remove(toon, studio, floor); glow.parent?.remove(glow); },
   };
   return api;
 }

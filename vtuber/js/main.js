@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
-import { Avatar } from './avatar.js?v=20261113.2020-a8bdf9a';
-import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261113.2020-a8bdf9a';
-import { Tracker } from './tracker.js?v=20261113.2020-a8bdf9a';
-import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261113.2020-a8bdf9a';
-import { FaceDriver, driverInput } from './face-driver.js?v=20261113.2020-a8bdf9a';
-import { saveModel, loadModel, clearModel } from './storage.js?v=20261113.2020-a8bdf9a';
-import { installLook } from './look.js?v=20261113.2020-a8bdf9a';
+import { Avatar } from './avatar.js?v=20261113.2058-c4348f0';
+import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261113.2058-c4348f0';
+import { Tracker } from './tracker.js?v=20261113.2058-c4348f0';
+import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261113.2058-c4348f0';
+import { FaceDriver, driverInput } from './face-driver.js?v=20261113.2058-c4348f0';
+import { saveModel, loadModel, clearModel } from './storage.js?v=20261113.2058-c4348f0';
+import { installLook } from './look.js?v=20261113.2058-c4348f0';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -22,7 +22,7 @@ const state = {
   mirror: true,            // face left/right: inverted by default ("Invert face left/right" on)
   showFeed: true,
   bg: '#2b2140',
-  look: 'studio',           // studio | toon
+  look: 'medium',           // quality: low (flat) | medium (lit) | high (rendered look)
   baseline: null,          // the person's calibrated neutral face (FaceDriver baselines)
   ...saved,
 };
@@ -45,6 +45,7 @@ scene.background = new THREE.Color(state.bg);
 const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
 // lights + materials come from look.js (Studio = lit like the Blender renders, Toon = flat VRM look)
 let look = null;
+if (state.look === 'studio') state.look = 'medium'; else if (state.look === 'toon') state.look = 'low';
 const avatar = new Avatar(scene);
 let rig = null;
 const camTarget = new THREE.Vector3(0, 1.4, 0), camPos = new THREE.Vector3(0, 1.45, 1.3);
@@ -192,7 +193,7 @@ function loop() {
   }
   avatar.update(dt);
   frameCamera(dt);
-  renderer.render(scene, camera);
+  if (look) look.render(camera); else renderer.render(scene, camera);
   stats.n++;
   if (t - stats.t0 > 1000) {
     stats.fps = stats.n * 1000 / (t - stats.t0); stats.tFps = stats.tn * 1000 / (t - stats.t0); stats.n = stats.tn = 0; stats.t0 = t;
@@ -268,7 +269,7 @@ $('#o-pose').addEventListener('change', async (e) => { state.poseModel = e.targe
 $('#o-facing').addEventListener('change', async (e) => { state.facing = e.target.value; persist(); syncUI(); if (running) await startCamera(); });
 $('#o-delegate').addEventListener('change', (e) => { state.delegate = e.target.value; persist(); toast('Reload the page to apply'); });
 $('#o-bg').addEventListener('change', (e) => { state.bg = e.target.value; persist(); syncUI(); });
-$('#o-look').addEventListener('change', (e) => { state.look = e.target.value; persist(); look?.set(state.look); });
+$('#o-look').addEventListener('change', (e) => { state.look = e.target.value; persist(); look?.set(state.look); resize(); });
 $('#o-reset').addEventListener('click', () => { state.baseline = null; driver.reset(); state.tuning = { ...DEFAULT_TUNING }; persist(); syncUI(); toast('Reset'); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && running) stopCamera(); });
 
@@ -278,6 +279,7 @@ syncUI(); resize(); bootModel(); loop();
 window.app = {
   state, avatar, tracker, driver, ensureModels, useModel, processFrame, frameCamera,
   get rig() { return rig; },
-  render() { avatar.update(1 / 30); frameCamera(1 / 30, true); renderer.render(scene, camera); },
+  get look() { return look; },
+  render() { avatar.update(1 / 30); frameCamera(1 / 30, true); if (look) look.render(camera); else renderer.render(scene, camera); },
   setMode(m) { state.mode = m; syncUI(); },
 };
