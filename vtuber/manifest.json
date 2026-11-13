@@ -1,0 +1,8 @@
+{
+  "name": "PuzzleVision Cam",
+  "short_name": "PuzzleVision",
+  "start_url": "./",
+  "display": "fullscreen",
+  "background_color": "#1c1529",
+  "theme_color": "#1c1529"
+}

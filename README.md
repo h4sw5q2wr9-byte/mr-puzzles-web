@@ -29,6 +29,20 @@ same pipeline (`MoodLogic` -> rig bones), rendered by this site in headless Chro
 | Mobile polish | safe-area insets, dynamic viewport, adaptive render resolution + frame-rate governor, adaptive detection spacing, PWA manifest + icons + offline cache |
 | Controls | mood chips (force a mood), settings: expressiveness, TV size/height/depth, mirror, shoulders, physics, quality, **calibrate neutral face**, debug overlay |
 
+## PuzzleVision Cam: full-body VTuber app (`/vtuber/`)
+
+A separate app in `vtuber/`. It drives the full **Mr. Puzzles VRM avatar**: face, upper body or
+full body, with the SMG4-style rainbow mouth, eyes and brows. It's live at
+`https://h4sw5q2wr9-byte.github.io/mr-puzzles-web/vtuber/`.
+
+* **No model is bundled.** Tap **Choose .vrm file** and pick `MrPuzzles.vrm` from Files; it's
+  remembered on the device. (The model is personal-use only, so it's kept out of this public repo.)
+* It loads three.js, three-vrm, Kalidokit and MediaPipe from the jsDelivr CDN, so it needs a
+  connection.
+* The source of truth is `mr-puzzles-vtuber/app/` in the private `Claude-Code-Storage` repo. Copy it
+  here to update.
+* The root app's service worker skips `/vtuber/`, so updates show immediately.
+
 ## Run it
 
 ```bash
