@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
-import { Avatar } from './avatar.js?v=20261113.1049-7ed5388';
-import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261113.1049-7ed5388';
-import { Tracker } from './tracker.js?v=20261113.1049-7ed5388';
-import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261113.1049-7ed5388';
-import { FaceDriver, driverInput } from './face-driver.js?v=20261113.1049-7ed5388';
-import { saveModel, loadModel, clearModel } from './storage.js?v=20261113.1049-7ed5388';
+import { Avatar } from './avatar.js?v=20261113.1052-45cdbb9';
+import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261113.1052-45cdbb9';
+import { Tracker } from './tracker.js?v=20261113.1052-45cdbb9';
+import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261113.1052-45cdbb9';
+import { FaceDriver, driverInput } from './face-driver.js?v=20261113.1052-45cdbb9';
+import { saveModel, loadModel, clearModel } from './storage.js?v=20261113.1052-45cdbb9';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -18,7 +18,7 @@ const state = {
   facing: 'user',          // user | environment
   poseModel: 'lite',       // lite | full
   delegate: 'GPU',
-  mirror: false,           // face left/right: false = not reversed (default); true = inverted
+  mirror: true,            // face left/right: inverted by default ("Invert face left/right" on)
   showFeed: true,
   bg: '#2b2140',
   baseline: null,          // the person's calibrated neutral face (FaceDriver baselines)
@@ -26,9 +26,11 @@ const state = {
 };
 // settings from older versions: keep the user's sliders, add the new options with their defaults
 state.tuning = { ...DEFAULT_TUNING, ...(saved.v >= 2 ? saved.tuning : { ...(saved.tuning || {}), style: DEFAULT_TUNING.style }) };
-// face not reversed by default; settings saved by the reverted phase-2 build (v4) are reset once
-if (!(saved.v >= 3) || saved.v >= 4) { state.mirror = false; for (const k of ['view', 'track', 'preview', 'armGain', 'arMode', 'arHide', 'arScale', 'debug', 'perf', 'auto', 'poses', 'lipsync', 'staticFx', 'sweat', 'recAudio', 'recClean']) delete state[k]; }
-state.v = 3; delete state.neutral;
+// settings saved by the reverted phase-2 build (v4) are cleaned up once
+if (!(saved.v >= 3) || saved.v === 4) { for (const k of ['view', 'track', 'preview', 'armGain', 'arMode', 'arHide', 'arScale', 'debug', 'perf', 'auto', 'poses', 'lipsync', 'staticFx', 'sweat', 'recAudio', 'recClean']) delete state[k]; }
+// v5: the face is inverted by default -> switch it on once for everyone
+if (!(saved.v >= 5)) state.mirror = true;
+state.v = 5; delete state.neutral;
 const persist = () => { try { localStorage.setItem('mp-settings', JSON.stringify(state)); } catch {} };
 
 // ---------------------------------------------------------------- three.js

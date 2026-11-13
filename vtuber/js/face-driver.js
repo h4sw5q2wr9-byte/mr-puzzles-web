@@ -1,8 +1,8 @@
 // Stateful face front-end: per-person adaptive neutral (blendshapes AND landmark geometry), blink
 // hysteresis, tracking confidence, and the brief red flash. Feeds the pure mapFace().
 // Used identically by the app (live camera) and by tests/face_replay.mjs (recorded real signals).
-import { mapFace, DEFAULT_TUNING } from './face-map.js?v=20261113.1049-7ed5388';
-import { faceGeometry } from './face-geom.js?v=20261113.1049-7ed5388';
+import { mapFace, DEFAULT_TUNING } from './face-map.js?v=20261113.1052-45cdbb9';
+import { faceGeometry } from './face-geom.js?v=20261113.1052-45cdbb9';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smoothstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
