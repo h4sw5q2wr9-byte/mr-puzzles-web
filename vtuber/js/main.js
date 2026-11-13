@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
-import { Avatar } from './avatar.js?v=20261113.1052-45cdbb9';
-import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261113.1052-45cdbb9';
-import { Tracker } from './tracker.js?v=20261113.1052-45cdbb9';
-import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261113.1052-45cdbb9';
-import { FaceDriver, driverInput } from './face-driver.js?v=20261113.1052-45cdbb9';
-import { saveModel, loadModel, clearModel } from './storage.js?v=20261113.1052-45cdbb9';
+import { Avatar } from './avatar.js?v=20261113.2020-a8bdf9a';
+import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261113.2020-a8bdf9a';
+import { Tracker } from './tracker.js?v=20261113.2020-a8bdf9a';
+import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261113.2020-a8bdf9a';
+import { FaceDriver, driverInput } from './face-driver.js?v=20261113.2020-a8bdf9a';
+import { saveModel, loadModel, clearModel } from './storage.js?v=20261113.2020-a8bdf9a';
+import { installLook } from './look.js?v=20261113.2020-a8bdf9a';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -21,6 +22,7 @@ const state = {
   mirror: true,            // face left/right: inverted by default ("Invert face left/right" on)
   showFeed: true,
   bg: '#2b2140',
+  look: 'studio',           // studio | toon
   baseline: null,          // the person's calibrated neutral face (FaceDriver baselines)
   ...saved,
 };
@@ -41,9 +43,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TEST ? 1 : 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(state.bg);
 const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
-const key = new THREE.DirectionalLight(0xffffff, 0.75); key.position.set(0.6, 2.2, 3); scene.add(key);
-const rim = new THREE.DirectionalLight(0xb48cff, 0.5); rim.position.set(-2, 2, -2); scene.add(rim);
-scene.add(new THREE.HemisphereLight(0xe8e0ff, 0x302040, 0.55));
+// lights + materials come from look.js (Studio = lit like the Blender renders, Toon = flat VRM look)
+let look = null;
 const avatar = new Avatar(scene);
 let rig = null;
 const camTarget = new THREE.Vector3(0, 1.4, 0), camPos = new THREE.Vector3(0, 1.45, 1.3);
@@ -73,6 +74,7 @@ async function useModel(buf, remember = true) {
   status('Loading avatar…');
   await avatar.load(buf);
   rig = new BodyRig(avatar.vrm);
+  look?.dispose(); look = installLook(THREE, { renderer, scene, vrm: avatar.vrm }); look.set(state.look);
   if (!avatar.hasPuzzlesFace) toast('This VRM has no Mr. Puzzles face groups – only head/body will move.');
   else if (avatar.missingGroups.length) toast('This is an older Mr. Puzzles model: tap ⚙︎ → Advanced → Use built-in Mr. Puzzles for the new eye shapes.', 9000);
   if (remember) saveModel(buf, { kind: 'custom' }).catch(() => {});
@@ -238,7 +240,7 @@ function syncUI() {
   $('#o-style').value = state.tuning.style;
   $('#o-mirror').checked = state.mirror; $('#o-feed').checked = state.showFeed; $('#o-mood').checked = state.tuning.autoMoodColor;
   $('#o-green').checked = state.tuning.greenFx;
-  $('#o-pose').value = state.poseModel; $('#o-facing').value = state.facing; $('#o-delegate').value = state.delegate; $('#o-bg').value = state.bg;
+  $('#o-pose').value = state.poseModel; $('#o-facing').value = state.facing; $('#o-delegate').value = state.delegate; $('#o-bg').value = state.bg; $('#o-look').value = state.look;
 }
 document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', async () => {
   state.mode = b.dataset.mode; persist(); syncUI();
@@ -266,6 +268,7 @@ $('#o-pose').addEventListener('change', async (e) => { state.poseModel = e.targe
 $('#o-facing').addEventListener('change', async (e) => { state.facing = e.target.value; persist(); syncUI(); if (running) await startCamera(); });
 $('#o-delegate').addEventListener('change', (e) => { state.delegate = e.target.value; persist(); toast('Reload the page to apply'); });
 $('#o-bg').addEventListener('change', (e) => { state.bg = e.target.value; persist(); syncUI(); });
+$('#o-look').addEventListener('change', (e) => { state.look = e.target.value; persist(); look?.set(state.look); });
 $('#o-reset').addEventListener('click', () => { state.baseline = null; driver.reset(); state.tuning = { ...DEFAULT_TUNING }; persist(); syncUI(); toast('Reset'); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && running) stopCamera(); });
 
