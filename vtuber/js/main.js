@@ -3,7 +3,8 @@ import * as Kalidokit from 'kalidokit';
 import { Avatar } from './avatar.js';
 import { BodyRig, solvePose, solveHands } from './body-rig.js';
 import { Tracker } from './tracker.js';
-import { mapFace, categoriesToDict, DEFAULT_TUNING } from './face-map.js';
+import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js';
+import { FaceDriver, driverInput } from './face-driver.js';
 import { saveModel, loadModel } from './storage.js';
 
 const $ = (s) => document.querySelector(s);
@@ -20,10 +21,12 @@ const state = {
   mirror: true,
   showFeed: true,
   bg: '#2b2140',
-  tuning: { ...DEFAULT_TUNING },
-  neutral: null,
+  baseline: null,          // the person's calibrated neutral face (FaceDriver baselines)
   ...saved,
 };
+// settings from older versions: keep the user's sliders, add the new options with their defaults
+state.tuning = { ...DEFAULT_TUNING, ...(saved.v >= 2 ? saved.tuning : { ...(saved.tuning || {}), style: DEFAULT_TUNING.style }) };
+state.v = 2; delete state.neutral;
 const persist = () => { try { localStorage.setItem('mp-settings', JSON.stringify(state)); } catch {} };
 
 // ---------------------------------------------------------------- three.js
@@ -91,7 +94,9 @@ async function bootModel() {
 // ---------------------------------------------------------------- tracking
 const tracker = new Tracker();
 const video = $('#video');
-let stream = null, running = false, lastVideoTime = -1, calib = null;
+let stream = null, running = false, lastVideoTime = -1;
+const driver = new FaceDriver();
+if (state.baseline) { driver.bsBase = { ...state.baseline.bs }; driver.geoBase = state.baseline.geo ? { ...state.baseline.geo } : null; driver.locked = true; }
 const stats = { fps: 0, tFps: 0, n: 0, tn: 0, t0: performance.now(), face: false, pose: false };
 
 async function startCamera() {
@@ -103,6 +108,7 @@ async function startCamera() {
     video.srcObject = stream; await video.play();
     await ensureModels();
     running = true; $('#btn-cam').classList.add('on'); $('#btn-cam').textContent = 'Stop';
+    if (!state.baseline) { driver.reset(); setTimeout(() => running && !state.baseline && startCalibration(), 900); }
     status('');
   } catch (e) { console.error(e); status(''); toast('Camera: ' + e.message); }
 }
@@ -123,11 +129,11 @@ function processFrame(src, nowMs, dt) {
   const fl = res.face?.faceLandmarks?.[0];
   stats.face = !!fl;
   if (fl) {
-    const bs = categoriesToDict(res.face.faceBlendshapes[0].categories);
-    if (calib) { calib.push(bs); if (calib.length >= 40) finishCalibration(); }
-    const { weights, mood } = mapFace(bs, { mirror: state.mirror, neutral: state.neutral, tuning: state.tuning });
-    avatar.setFace(weights, dt, mood);
-    lastFace = { bs, weights };
+    const inp = driverInput(res.face, w / h);
+    const r = driver.step(inp, dt, { tuning: state.tuning, mirror: state.mirror });
+    if (r.calibrated) finishCalibration();
+    avatar.setFace(r.weights, dt, r.mood, { responsiveness: state.tuning.responsiveness, conf: r.conf, pop: (STYLES[state.tuning.style] || STYLES.zamination).pop });
+    lastFace = { bs: inp.bs, weights: r.weights, cues: r.cues, mood: r.mood, conf: r.conf };
     const fs = Kalidokit.Face.solve(fl, { runtime: 'mediapipe', imageSize: size, smoothBlink: false });
     const hipsYaw = 0;
     if (fs) rig.applyHead(fs, dt, hipsYaw);
@@ -168,12 +174,11 @@ function loop() {
 // ---------------------------------------------------------------- calibration
 function startCalibration() {
   if (!running) { toast('Start the camera first'); return; }
-  calib = []; toast('Relax your face and look at the screen…', 2500);
+  driver.startCalibration(30); toast('Relax your face and look at the screen…', 2500);
 }
 function finishCalibration() {
-  const keys = Object.keys(calib[0]); const n = {};
-  for (const k of keys) { const v = calib.map((c) => c[k]).sort((a, b) => a - b); n[k] = v[Math.floor(v.length / 2)]; }
-  state.neutral = n; calib = null; persist(); toast('Calibrated ✓ (your resting face is now neutral)');
+  state.baseline = { bs: { ...driver.bsBase }, geo: driver.geoBase ? { ...driver.geoBase } : null }; persist();
+  toast('Calibrated ✓ (your resting face is now neutral)');
 }
 
 // ---------------------------------------------------------------- recording
@@ -197,12 +202,15 @@ function toggleRecord() {
 // ---------------------------------------------------------------- UI
 function status(s) { $('#status').textContent = s; $('#status').hidden = !s; }
 let toastT; function toast(s, ms = 3500) { const el = $('#toast'); el.textContent = s; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (el.hidden = true), ms); }
+const SLIDERS = ['intensity', 'eyeIntensity', 'mouthIntensity', 'browIntensity', 'gaze', 'responsiveness', 'shading'];
 function syncUI() {
   document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === state.mode));
   $('#feed').hidden = !state.showFeed; video.classList.toggle('mirror', state.facing === 'user');
   scene.background = new THREE.Color(state.bg);
-  for (const k of ['intensity', 'eyeIntensity', 'mouthIntensity', 'browIntensity', 'gaze']) { const el = $('#t-' + k); if (el) el.value = state.tuning[k]; }
+  for (const k of SLIDERS) { const el = $('#t-' + k); if (el) el.value = state.tuning[k]; }
+  $('#o-style').value = state.tuning.style;
   $('#o-mirror').checked = state.mirror; $('#o-feed').checked = state.showFeed; $('#o-mood').checked = state.tuning.autoMoodColor;
+  $('#o-green').checked = state.tuning.greenFx;
   $('#o-pose').value = state.poseModel; $('#o-facing').value = state.facing; $('#o-delegate').value = state.delegate; $('#o-bg').value = state.bg;
 }
 document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', async () => {
@@ -220,7 +228,9 @@ document.querySelectorAll('[data-tint]').forEach((b) => b.addEventListener('clic
   const t = b.dataset.tint; avatar.manualTint = t === 'auto' ? null : { red: t === 'red' ? 1 : 0, green: t === 'green' ? 1 : 0 };
   document.querySelectorAll('[data-tint]').forEach((x) => x.classList.toggle('on', x === b));
 }));
-for (const k of ['intensity', 'eyeIntensity', 'mouthIntensity', 'browIntensity', 'gaze']) $('#t-' + k)?.addEventListener('input', (e) => { state.tuning[k] = +e.target.value; persist(); });
+for (const k of SLIDERS) $('#t-' + k)?.addEventListener('input', (e) => { state.tuning[k] = +e.target.value; persist(); });
+$('#o-style').addEventListener('change', (e) => { state.tuning.style = e.target.value; persist(); });
+$('#o-green').addEventListener('change', (e) => { state.tuning.greenFx = e.target.checked; persist(); });
 $('#o-mirror').addEventListener('change', (e) => { state.mirror = e.target.checked; persist(); });
 $('#o-feed').addEventListener('change', (e) => { state.showFeed = e.target.checked; persist(); syncUI(); });
 $('#o-mood').addEventListener('change', (e) => { state.tuning.autoMoodColor = e.target.checked; persist(); });
@@ -228,14 +238,14 @@ $('#o-pose').addEventListener('change', async (e) => { state.poseModel = e.targe
 $('#o-facing').addEventListener('change', async (e) => { state.facing = e.target.value; persist(); syncUI(); if (running) await startCamera(); });
 $('#o-delegate').addEventListener('change', (e) => { state.delegate = e.target.value; persist(); toast('Reload the page to apply'); });
 $('#o-bg').addEventListener('change', (e) => { state.bg = e.target.value; persist(); syncUI(); });
-$('#o-reset').addEventListener('click', () => { state.neutral = null; state.tuning = { ...DEFAULT_TUNING }; persist(); syncUI(); toast('Reset'); });
+$('#o-reset').addEventListener('click', () => { state.baseline = null; driver.reset(); state.tuning = { ...DEFAULT_TUNING }; persist(); syncUI(); toast('Reset'); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && running) stopCamera(); });
 
 syncUI(); resize(); bootModel(); loop();
 
 // test / automation hooks --------------------------------------------------------------
 window.app = {
-  state, avatar, tracker, ensureModels, useModel, processFrame, frameCamera,
+  state, avatar, tracker, driver, ensureModels, useModel, processFrame, frameCamera,
   get rig() { return rig; },
   render() { avatar.update(1 / 30); frameCamera(1 / 30, true); renderer.render(scene, camera); },
   setMode(m) { state.mode = m; syncUI(); },

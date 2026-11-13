@@ -32,15 +32,22 @@ same pipeline (`MoodLogic` -> rig bones), rendered by this site in headless Chro
 ## PuzzleVision Cam: full-body VTuber app (`/vtuber/`)
 
 A separate app in `vtuber/`. It drives the full **Mr. Puzzles VRM avatar**: face, upper body or
-full body, with the SMG4-style rainbow mouth, eyes and brows. It's live at
+full body, with the ZAMination-style eyes, brows, rainbow mouth and screen effects. It's live at
 `https://h4sw5q2wr9-byte.github.io/mr-puzzles-web/vtuber/`.
 
-* **No model is bundled.** Tap **Choose .vrm file** and pick `MrPuzzles.vrm` from Files; it's
-  remembered on the device. (The model is personal-use only, so it's kept out of this public repo.)
+* **Tracking styles:** ZAMination (default), Balanced and Accurate. There are also sliders for
+  expressiveness, eye, brow and mouth exaggeration, and smooth/snappy response. Screen effects (a
+  brief red flash on sudden anger, eyelid/brow shading, optional green) can each be toggled. All
+  settings are remembered on the device.
+* **The model loads automatically after a one-time import.** On first use, tap
+  **Import MrPuzzles.vrm**. It's stored on the device (IndexedDB), and later visits open straight
+  into Mr. Puzzles. The model isn't bundled in this public repo because permission to redistribute
+  it isn't confirmed. If you ever have that permission, put `MrPuzzles.vrm` in `vtuber/` and the app
+  loads it for everyone with no import step.
 * It loads three.js, three-vrm, Kalidokit and MediaPipe from the jsDelivr CDN, so it needs a
   connection.
-* The source of truth is `mr-puzzles-vtuber/app/` in the private `Claude-Code-Storage` repo. Copy it
-  here to update.
+* The source of truth is `mr-puzzles-vtuber/app/` in the private `Claude-Code-Storage` repo
+  (tests, converter and report live there). Copy it here to update.
 * The root app's service worker skips `/vtuber/`, so updates show immediately.
 
 ## Run it

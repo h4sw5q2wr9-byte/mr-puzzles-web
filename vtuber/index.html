@@ -36,6 +36,8 @@
   #empty { position:fixed; inset:0; display:grid; place-items:center; text-align:center; padding:24px; }
   #empty .card { max-width:360px; background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:22px; }
   #empty h1 { font-size:22px; margin:0 0 8px; } #empty p { color:var(--muted); margin:0 0 16px; }
+  .fine { font-size:12px; color:var(--muted); }
+  #settings details { margin-top:10px; color:var(--muted); } #settings summary { padding:6px 0; }
   [hidden] { display:none !important; }
 </style>
 <script type="importmap">
@@ -58,30 +60,45 @@
 
 <div id="empty" hidden><div class="card">
   <h1>PuzzleVision Cam</h1>
-  <p>Load <b>MrPuzzles.vrm</b> from your Files app. It is remembered on this device for next time.</p>
-  <button id="empty-load" class="on">Choose .vrm file</button>
+  <p><b>One-time setup:</b> import <b>MrPuzzles.vrm</b> from your Files app. It is stored on this device only,
+    and Mr. Puzzles loads automatically every time you open the app after that.</p>
+  <button id="empty-load" class="on">Import MrPuzzles.vrm</button>
+  <p class="fine">Why not built in? Permission to re-publish the model isn't confirmed, so the app
+    never hosts it. Your copy never leaves your phone.</p>
 </div></div>
 
 <div id="settings" hidden>
-  <h3>Expression</h3>
-  <label>Overall drama <input id="t-intensity" type="range" min="0.3" max="2" step="0.05"></label>
-  <label>Eyes <input id="t-eyeIntensity" type="range" min="0.3" max="2" step="0.05"></label>
-  <label>Eyebrows <input id="t-browIntensity" type="range" min="0.3" max="2.5" step="0.05"></label>
-  <label>Rainbow mouth <input id="t-mouthIntensity" type="range" min="0.3" max="2" step="0.05"></label>
+  <h3>Tracking style</h3>
+  <label>Style <select id="o-style">
+    <option value="zamination">ZAMination (dramatic cartoon)</option>
+    <option value="balanced">Balanced</option>
+    <option value="accurate">Accurate (follows you closely)</option>
+  </select></label>
+  <label>Expressiveness <input id="t-intensity" type="range" min="0.3" max="2" step="0.05"></label>
+  <label>Eye exaggeration <input id="t-eyeIntensity" type="range" min="0.3" max="2" step="0.05"></label>
+  <label>Eyebrow exaggeration <input id="t-browIntensity" type="range" min="0.3" max="2.5" step="0.05"></label>
+  <label>Mouth exaggeration <input id="t-mouthIntensity" type="range" min="0.3" max="2" step="0.05"></label>
   <label>Pupil movement <input id="t-gaze" type="range" min="0" max="2.5" step="0.05"></label>
+  <label>Smooth ↔ Snappy <input id="t-responsiveness" type="range" min="0.4" max="2.5" step="0.05"></label>
   <label>Mirror (my left = screen left) <input id="o-mirror" type="checkbox"></label>
-  <label>Red screen when furious <input id="o-mood" type="checkbox"></label>
-  <h3>Screen colour</h3>
+  <h3>Screen effects</h3>
+  <label>Red flash on sudden anger / shouting <input id="o-mood" type="checkbox"></label>
+  <label>Green screen when disgusted <input id="o-green" type="checkbox"></label>
+  <label>Eyelid / brow shading <input id="t-shading" type="range" min="0" max="1.5" step="0.05"></label>
   <div class="row" style="justify-content:flex-start;margin:0 0 8px">
+    <span class="fine" style="align-self:center">Force colour:</span>
     <button data-tint="auto" class="on">Auto</button><button data-tint="red">Red</button><button data-tint="green">Green</button>
   </div>
-  <h3>Tracking</h3>
+  <h3>Camera</h3>
   <label>Camera <select id="o-facing"><option value="user">Front (selfie)</option><option value="environment">Back</option></select></label>
   <label>Body model <select id="o-pose"><option value="lite">Lite (faster)</option><option value="full">Full (more accurate)</option></select></label>
-  <label>Processor <select id="o-delegate"><option value="GPU">GPU</option><option value="CPU">CPU</option></select></label>
   <label>Show camera preview <input id="o-feed" type="checkbox"></label>
   <label>Background <select id="o-bg"><option value="#2b2140">PuzzleVision purple</option><option value="#00b140">Green screen</option><option value="#0047bb">Blue screen</option><option value="#111111">Black</option><option value="#f2f0f5">White</option></select></label>
-  <div class="row"><button id="btn-load">Load another .vrm</button><button id="o-reset">Reset calibration &amp; sliders</button></div>
+  <div class="row"><button id="o-reset">Reset calibration &amp; settings</button></div>
+  <details><summary>Advanced</summary>
+    <label>Processor <select id="o-delegate"><option value="GPU">GPU</option><option value="CPU">CPU</option></select></label>
+    <div class="row"><button id="btn-load">Replace the model (.vrm)…</button></div>
+  </details>
 </div>
 
 <div class="bar">

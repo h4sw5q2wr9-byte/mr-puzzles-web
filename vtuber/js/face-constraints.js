@@ -122,7 +122,24 @@ export function buildFaceConstraints(prims, limits) {
     }
     return info;
   }
-  return { solve, eyes, topCount: top.length };
+  // brow line per eye (for the screen shading that follows the brows): ink above each eye white
+  for (const e of eyes) {
+    const x0 = Math.min(...e.whites.map((s) => s.x)), x1 = Math.max(...e.whites.map((s) => s.x)), wd = x1 - x0;
+    const yTop = Math.max(...e.whites.map((s) => s.y));
+    e.brow = pts('Ink', (x, y) => x > x0 - 0.25 * wd && x < x1 + 0.25 * wd && y > yTop + 0.003);
+    e.cx = (x0 + x1) / 2;
+  }
+  /** current brow heights (model space), evaluated from the actual morph targets */
+  function browLine(w) {
+    const keys = Object.keys(w).filter((k) => w[k] && /^(brow|eye)/.test(k));
+    const out = {};
+    for (const e of eyes) {
+      let y = 0; for (const s of e.brow) y += evalY(s, w, keys);
+      out[e.side] = { x: e.cx, y: e.brow.length ? y / e.brow.length : limits.visibleTop - 0.03 };
+    }
+    return out;
+  }
+  return { solve, eyes, browLine, topCount: top.length };
 }
 
 /** helper for the browser: collect primitives of the VRM's "Face" mesh from three.js objects */

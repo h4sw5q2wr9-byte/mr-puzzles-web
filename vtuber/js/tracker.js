@@ -25,7 +25,7 @@ export class Tracker {
     };
     if (!this.face) this.face = await make(FaceLandmarker, {
       baseOptions: { modelAssetPath: MODELS.face }, runningMode: 'VIDEO', numFaces: 1,
-      outputFaceBlendshapes: true, minFaceDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
+      outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true, minFaceDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
     }, 'face model');
     if (needPose && (!this.pose || this.poseKind !== poseModel)) {
       this.pose?.close?.();

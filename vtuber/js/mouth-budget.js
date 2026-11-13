@@ -19,6 +19,10 @@ export const MOUTH_BUDGET = {
    0.009377502709968915,
    0.4116798852292867
   ],
+  "mouthRound": [
+   0.3843718005749759,
+   0.38437180911829844
+  ],
   "mouthCenterUp": [
    0.3191854781181119,
    0.3191854900437571
@@ -71,6 +75,7 @@ export const MOUTH_BUDGET = {
   "mouthInterior": 0.4378120636346617,
   "mouthUpper_L": 0.4507491729500688,
   "mouthUpper_R": 0.4507491729500688,
+  "mouthRound": 0.38635643395720176,
   "mouthCenterUp": 0.3219636949643348,
   "mouthWave": 0.1709282845417904,
   "mouthSmile_L": 0.9444268385620488,
