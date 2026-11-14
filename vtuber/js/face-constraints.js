@@ -45,17 +45,56 @@ export function buildFaceConstraints(prims, limits) {
   for (const e of eyes) e.B = -drop(e, 'eyeCorrect_' + e.side);
   // top samples: everything above the eye centre line (brows, lashes, lids, eye tops), sub-sampled
   let top = [];
-  for (const m of ['Ink', 'EyeWhite', 'EyeShadow', 'Iris']) top = top.concat(pts(m, (x, y) => y > cy));
-  const stride = Math.max(1, Math.floor(top.length / 900));
+  for (const m of ['Ink', 'EyeWhite', 'EyeShadow', 'Iris']) top = top.concat(pts(m, (x, y) => y > cy - 0.03));   // incl. a band below the eye centre (rotated / stretched eyes lift it)
+  const stride = Math.max(1, Math.floor(top.length / 1800));
   top = top.filter((_, i) => i % stride === 0);
   const mouthAll = pts('Mouth').filter((_, i, a) => i % Math.max(1, Math.floor(a.length / 300)) === 0);
 
-  function solve(w) {
+  // 0) brows stay ABOVE the eyes. Big / tall / wide eyes grow up into the brows and lowered brows
+  // sink into the eyes; per eye: undo brow lowering, then lift the brow (as far as the screen top
+  // allows), and only then limit how far the eye grows.
+  const BROW_GAP = 0.003;
+  const LOWER_RE = (side) => new RegExp(`^(browDown_${side}|browFlat_${side}|browPinch|browArch_${side}|browWorry_${side})$`);
+  const GROW_RE = (side) => new RegExp(`^eye(Big|Wide|Tall|RotOut|RotIn|Stretch|Droop|Angry)_${side}$`);
+  function browsClear(w, info, topLimit, allowLift = true) {
+    for (const e of eyes) {
+      if (!e.brow || !e.brow.length) continue;
+      for (let it = 0; it < 4; it++) {
+        const keys = Object.keys(w).filter((k) => w[k]);
+        let sT = null, eyeTop = -1e9; for (const s of e.whites) { const y = evalY(s, w, keys); if (y > eyeTop) { eyeTop = y; sT = s; } }
+        let sL = null, low = 1e9, high = -1e9;
+        for (const s of e.brow) { const y = evalY(s, w, keys); if (y < low) { low = y; sL = s; } high = Math.max(high, y); }
+        let need = eyeTop + BROW_GAP - low;
+        if (need <= 1e-5) break;
+        info.browsLifted = Math.max(info.browsLifted || 0, need);
+        // a) undo brow shapes that pull this point down
+        let down = 0; const dk = {};
+        for (const k of keys) { if (!LOWER_RE(e.side).test(k)) continue; const t = sL.p.targets[k]; if (!t) continue; const c = w[k] * t[sL.v * 3 + 1]; if (c < 0) { dk[k] = -c; down += -c; } }
+        // (undoing a frown also raises the brow, so the final pass - no lifting - skips this too)
+        if (down > 1e-9 && allowLift) { const f = Math.max(0, 1 - need / down); for (const k in dk) w[k] *= f; need -= down * (1 - f); }
+        if (need <= 1e-5) continue;
+        // b) lift the brow, within the room left under the screen top
+        const up = 'browUp_' + e.side, tu = sL.p.targets[up];
+        const dyUp = tu ? Math.max(1e-6, Math.min(...e.brow.map((s) => (s.p.targets[up] ? s.p.targets[up][s.v * 3 + 1] : 0)).filter((v) => v > 0), tu[sL.v * 3 + 1])) : 0;
+        if (dyUp > 0 && allowLift) {
+          const room = Math.max(0, topLimit - high);
+          const add = Math.min(1 - (w[up] || 0), Math.min(need, room) / dyUp);
+          if (add > 0) { w[up] = (w[up] || 0) + add; need -= add * dyUp; }
+        }
+        if (need <= 1e-5) continue;
+        // c) the eye may not grow this far up
+        let grow = 0; const gk = {};
+        for (const k of keys) { if (!GROW_RE(e.side).test(k)) continue; const t = sT.p.targets[k]; if (!t) continue; const c = w[k] * t[sT.v * 3 + 1]; if (c > 0) { gk[k] = c; grow += c; } }
+        if (grow > 1e-9) { const f = Math.max(0, 1 - need / grow); for (const k in gk) w[k] *= f; info.eyeLimited = Math.max(info.eyeLimited || 0, 1 - f); }
+        else break;
+      }
+    }
+  }
+
+  // 1) screen top: brows give way first (least headroom), eye shapes only if the brows cannot
+  function screenTop(w, info, topLimit) {
     const keys = Object.keys(w).filter((k) => w[k]);
-    const info = { topScaled: 0, eyeCorrect: {}, mouthScaled: 0 };
-    // 1) screen top
-    const topLimit = limits.visibleTop - limits.topMargin;
-    for (let it = 0; it < 4; it++) {
+    for (let it = 0; it < 8; it++) {
       let worst = null, over = 0;
       for (const s of top) { const o = evalY(s, w, keys) - topLimit; if (o > over) { over = o; worst = s; } }
       if (!worst) break;
@@ -78,6 +117,16 @@ export function buildFaceConstraints(prims, limits) {
       }
       if (!any) break;
     }
+  }
+
+  function solve(w) {
+    const info = { topScaled: 0, eyeCorrect: {}, mouthScaled: 0 };
+    const topLimit = limits.visibleTop - limits.topMargin;
+    // brows above the eyes and everything under the screen top: lift brows, then the top rule, then a
+    // last brow pass that may only undo lowering / limit the eye (never lifts above the screen)
+    for (let i = 0; i < 2; i++) { browsClear(w, info, topLimit, true); screenTop(w, info, topLimit); }
+    browsClear(w, info, topLimit, false);
+    const keys = Object.keys(w).filter((k) => w[k]);
     // 3) TV body top (mouth)
     {
       const mk = keys.filter((k) => MOUTH_RE.test(k));
@@ -139,7 +188,18 @@ export function buildFaceConstraints(prims, limits) {
     }
     return out;
   }
-  return { solve, eyes, browLine, topCount: top.length };
+  /** smallest vertical gap between a brow and the top of its eye (negative = overlap), for tests */
+  function browGap(w) {
+    const keys = Object.keys(w).filter((k) => w[k]); let gap = 1e9;
+    for (const e of eyes) {
+      if (!e.brow.length) continue;
+      let top = -1e9; for (const s of e.whites) top = Math.max(top, evalY(s, w, keys));
+      let low = 1e9; for (const s of e.brow) low = Math.min(low, evalY(s, w, keys));
+      gap = Math.min(gap, low - top);
+    }
+    return gap;
+  }
+  return { solve, eyes, browLine, browGap, topCount: top.length };
 }
 
 /** helper for the browser: collect primitives of the VRM's "Face" mesh from three.js objects */

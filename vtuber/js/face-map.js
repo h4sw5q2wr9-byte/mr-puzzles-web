@@ -20,6 +20,7 @@ export const AVATAR_GROUPS = [
   'eyeDroop_L', 'eyeDroop_R', 'eyeAngry_L', 'eyeAngry_R', 'eyeStretch_L', 'eyeStretch_R',
   'eyeRotOut_L', 'eyeRotOut_R', 'eyeRotIn_L', 'eyeRotIn_R',
   'browUp_L', 'browUp_R', 'browDown_L', 'browDown_R', 'browOuterUp_L', 'browOuterUp_R', 'browArch_L', 'browArch_R', 'browInnerUp',
+  'browWorry_L', 'browWorry_R', 'browFlat_L', 'browFlat_R', 'browPinch',
   'lookLeft', 'lookRight', 'lookUp', 'lookDown', 'pupilSmall', 'pupilBig',
   'jawOpen', 'mouthInterior', 'mouthSmile_L', 'mouthSmile_R', 'mouthFrown_L', 'mouthFrown_R', 'mouthUpper_L', 'mouthUpper_R',
   'mouthRound', 'mouthCenterUp', 'mouthWave', 'mouthPucker', 'mouthGrit', 'mouthTilt_L', 'mouthTilt_R', 'eyeCorrect_L', 'eyeCorrect_R',
@@ -57,6 +58,7 @@ export const DEFAULT_TUNING = {
   autoMoodColor: true, // red flash on sudden anger / shouting
   greenFx: false,      // sickly green gradient on disgust (optional)
   shading: 1.0,        // dynamic purple-grey upper-screen shading (0 = off)
+  glasses: false,      // wearing glasses: trust the eye signals less (lens reflections / frames)
 };
 
 /** neutral = optional calibration snapshot {name: value} captured with a relaxed face */
@@ -71,20 +73,22 @@ export function calibrated(bs, neutral) {
 }
 
 /** Per-side primitive signals (subject's sides) from blendshapes + optional geometry deltas. */
-export function signals(b, geom) {
+export function signals(b, geom, glasses = false) {
   const g = (k) => b[k] ?? 0;
   const G = (k) => (geom ? geom[k] ?? 0 : 0);
   const side = {};
   for (const X of ['Left', 'Right']) {
-    const blinkRaw = Math.max(g('eyeBlink' + X), geom ? smoothstep(-0.45, -0.8, G('eyeOpen' + X)) : 0);
-    const open = G('eyeOpen' + X);                       // relative change of the lid gap (+0.3 = 30 % wider)
+    // glasses: lens reflections and frames make the landmark eye-openness and the brow landmarks
+    // unreliable -> no geometric eye openness, brows from the blendshapes only, firmer thresholds
+    const blinkRaw = glasses ? smoothstep(0.2, 0.9, g('eyeBlink' + X)) : Math.max(g('eyeBlink' + X), geom ? smoothstep(-0.45, -0.8, G('eyeOpen' + X)) : 0);
+    const open = glasses ? 0 : G('eyeOpen' + X);                       // relative change of the lid gap (+0.3 = 30 % wider)
     const smile = Math.max(remap(g('mouthSmile' + X), 0.12, 0.75), smoothstep(0.025, 0.1, G('corner' + X)));
     side[X] = {
       blinkRaw,
       // narrowing without closing: lower lid up (eyeSquint) or a smaller lid gap
-      squint: Math.max(remap(g('eyeSquint' + X), 0.12, 0.55), smoothstep(0.08, 0.45, -open) * (1 - smoothstep(0.5, 0.8, blinkRaw))),
+      squint: Math.max(remap(g('eyeSquint' + X), glasses ? 0.25 : 0.12, glasses ? 0.75 : 0.55), smoothstep(0.08, 0.45, -open) * (1 - smoothstep(0.5, 0.8, blinkRaw))),
       wide: Math.max(remap(g('eyeWide' + X), 0.04, 0.4), smoothstep(0.12, 0.5, open)),
-      browUp: Math.max(remap(g('browOuterUp' + X), 0.08, 0.45), smoothstep(0.012, 0.085, G('browMid' + X))),
+      browUp: Math.max(remap(g('browOuterUp' + X), 0.08, 0.45), glasses ? 0 : smoothstep(0.012, 0.085, G('browMid' + X))),
       browOuter: Math.max(remap(g('browOuterUp' + X), 0.08, 0.45), smoothstep(0.012, 0.08, G('browOuter' + X))),
       // a squinting grin shortens the brow-eye distance too (cheeks push the eye up): discount geometry
       browDown: Math.max(remap(g('browDown' + X), 0.1, 0.5), smoothstep(0.012, 0.09, -G('browMid' + X)) * (1 - 0.8 * smile)),
@@ -123,7 +127,7 @@ export function mapFace(bsRaw, { mirror = false, neutral = null, tuning = DEFAUL
   const P = (x, lo = 0.06, hi = 0.7) => clamp01(lerp(x, smoothstep(lo, hi, x), St.curve) * St.gain);
   const A = mirror ? { Left: 'R', Right: 'L' } : { Left: 'L', Right: 'R' };   // user side -> avatar side
   const w = Object.fromEntries(AVATAR_GROUPS.map((n) => [n, 0]));
-  const S = signals(b, geom);
+  const S = signals(b, geom, T.glasses);
   // low confidence (head turned away): the far side's signals are unreliable -> pull sides together
   const k = clamp01(conf);
   for (const key of Object.keys(S.side.Left)) {
@@ -212,6 +216,13 @@ export function mapFace(bsRaw, { mirror = false, neutral = null, tuning = DEFAUL
     w['eyeHalfLid_' + other] = clamp01(Math.max(w['eyeHalfLid_' + other], kk * 0.35 * co * eI));
   }
   w.browInnerUp = clamp01((P(innerUp) + fear * 0.3 * co + sad * 0.25 * co) * bI);
+  // character brow shapes (ZAMination frames): worried wave, heavy flat brows, pinched frown
+  for (const X of ['Left', 'Right']) {
+    const s = A[X], x = S.side[X];
+    w['browWorry_' + s] = clamp01(smoothstep(0.2, 0.7, fear * 0.9 + sad * 0.7 + x.innerUp * 0.4 * co) * bI * (1 - x.browDown));
+    w['browFlat_' + s] = clamp01(smoothstep(0.2, 0.7, tired * 0.9 + suspicion * 0.6 + disgust * 0.3) * bI * (1 - x.browUp));
+  }
+  w.browPinch = clamp01(smoothstep(0.3, 0.85, browDn * 0.7 + anger * 0.5 + disgust * 0.4 + sad * 0.3 + tired * 0.3) * co * bI);
   // ---- jaw / mouth body ------------------------------------------------------------------------------
   w.jawOpen = clamp01((P(jaw, 0.03, 0.75) + smileK * 0.08) * mI);
   // black interior: only a REALLY open mouth (shouting, screaming, laughing, strong surprise);
@@ -276,7 +287,7 @@ export function mapFace(bsRaw, { mirror = false, neutral = null, tuning = DEFAUL
   const furious = clamp01(Math.max(anger, scream * 1.2));
   return {
     weights: w,
-    mood: { red: 0, green: T.greenFx ? clamp01(smoothstep(0.35, 0.8, disgust) * 0.7) : 0, anger: furious, shade, shadeL: sideShade('L'), shadeR: sideShade('R') },
+    mood: { furrow: clamp01(Math.max(anger, disgust * 0.8, tired * 0.7, sad * 0.6, smoothstep(0.4, 0.9, browDn) * 0.6) * (0.4 + 0.6 * co)), red: 0, green: T.greenFx ? clamp01(smoothstep(0.35, 0.8, disgust) * 0.7) : 0, anger: furious, shade, shadeL: sideShade('L'), shadeR: sideShade('R') },
     cues: { smile: smileK, jaw, anger, scream, laugh, surprise, fear, sad, disgust, suspicion, tired },
   };
 }

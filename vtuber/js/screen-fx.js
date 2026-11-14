@@ -12,6 +12,7 @@ export function installScreenFx(THREE, root, limits) {
     fxAmt: { value: new THREE.Vector4(0, 0, 0, 0) },       // shadeL, shadeR, red, green
     fxBrow: { value: new THREE.Vector4(-0.05, 1.53, 0.05, 1.53) },   // xL, yL, xR, yR (model space)
     fxTop: { value: limits.visibleTop },
+    fxFur: { value: 0 },                                    // furrow lines between the brows
     fxBottom: { value: limits.visibleBottom },
   };
   for (const m of mats) {
@@ -22,7 +23,9 @@ export function installScreenFx(THREE, root, limits) {
         .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFxPos = position;');
       sh.fragmentShader = sh.fragmentShader
         .replace('void main() {', `varying vec3 vFxPos;
-uniform vec4 fxAmt; uniform vec4 fxBrow; uniform float fxTop; uniform float fxBottom;
+uniform vec4 fxAmt; uniform vec4 fxBrow; uniform float fxTop; uniform float fxBottom; uniform float fxFur;
+// ink stroke: distance from p to the segment a-b
+float fxSeg(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h); }
 void main() {`)
         .replace('  // -- Almost done!', `  {
     // which brow governs this column (smooth hand-over between the eyes)
@@ -36,6 +39,17 @@ void main() {`)
     // sick green gradient (top dark -> bottom light), source rig colours
     float gy = clamp((vFxPos.y - fxBottom) / max(0.01, fxTop - fxBottom), 0.0, 1.0);
     col = mix(col, mix(vec3(0.193, 0.423, 0.067), vec3(0.03, 0.12, 0.02), gy), fxAmt.w);
+    // furrow lines between the brows (frown / exhausted, as in the ZAMination frames): three short strokes
+    if (fxFur > 0.01) {
+      float cx = 0.5 * (fxBrow.x + fxBrow.z), cy = 0.5 * (fxBrow.y + fxBrow.w) - 0.006;
+      float gap = abs(fxBrow.z - fxBrow.x);
+      float d = 1.0;
+      for (int i = -1; i <= 1; i++) {
+        float fi = float(i), ox = cx + fi * gap * 0.07;
+        d = min(d, fxSeg(vFxPos.xy, vec2(ox + fi * 0.002, cy - 0.006 + abs(fi) * 0.002), vec2(ox - fi * 0.001, cy + 0.005 - abs(fi) * 0.001)));
+      }
+      col = mix(col, vec3(0.0), (1.0 - smoothstep(0.0006, 0.0011, d)) * fxFur);
+    }
     // red flash
     col = mix(col, vec3(0.86, 0.035, 0.025), fxAmt.z);
   }
@@ -48,6 +62,7 @@ void main() {`)
     /** mood: {shadeL, shadeR, red, green}; brows: {L:{x,y}, R:{x,y}} from face-constraints browLine() */
     set(mood, brows) {
       U.fxAmt.value.set(mood.shadeL || 0, mood.shadeR || 0, mood.red || 0, mood.green || 0);
+      U.fxFur.value = mood.furrow || 0;
       if (brows && brows.L && brows.R) {
         const [a, b] = brows.L.x < brows.R.x ? [brows.L, brows.R] : [brows.R, brows.L];
         const [sa, sb] = brows.L.x < brows.R.x ? [mood.shadeL || 0, mood.shadeR || 0] : [mood.shadeR || 0, mood.shadeL || 0];

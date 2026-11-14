@@ -1,16 +1,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMUtils } from '@pixiv/three-vrm';
-import { AVATAR_GROUPS } from './face-map.js?v=20261113.2058-c4348f0';
-import { buildFaceConstraints, primsFromThree } from './face-constraints.js?v=20261113.2058-c4348f0';
-import { FACE_LIMITS } from './face-limits.js?v=20261113.2058-c4348f0';
-import { FaceSmoother } from './face-smooth.js?v=20261113.2058-c4348f0';
-import { installScreenFx } from './screen-fx.js?v=20261113.2058-c4348f0';
+import { AVATAR_GROUPS } from './face-map.js?v=20261114.1543-6a1fb90';
+import { buildFaceConstraints, primsFromThree } from './face-constraints.js?v=20261114.1543-6a1fb90';
+import { FACE_LIMITS } from './face-limits.js?v=20261114.1543-6a1fb90';
+import { FaceSmoother } from './face-smooth.js?v=20261114.1543-6a1fb90';
+import { installScreenFx } from './screen-fx.js?v=20261114.1543-6a1fb90';
 
-export { OneEuro } from './face-smooth.js?v=20261113.2058-c4348f0';
+export { OneEuro } from './face-smooth.js?v=20261114.1543-6a1fb90';
 
 export class Avatar {
-  constructor(scene) { this.scene = scene; this.vrm = null; this.smoother = new FaceSmoother(); this.fx = { shadeL: 0, shadeR: 0, red: 0, green: 0 }; this.manualTint = null; }
+  constructor(scene) { this.scene = scene; this.vrm = null; this.smoother = new FaceSmoother(); this.fx = { shadeL: 0, shadeR: 0, red: 0, green: 0, furrow: 0 }; this.manualTint = null; }
 
   async load(arrayBuffer) {
     const gltf = await new Promise((res, rej) => new GLTFLoader().parse(arrayBuffer, '', res, rej));
@@ -46,7 +46,7 @@ export class Avatar {
     // screen effects: shading eases in/out, the red flash envelope is already shaped by the driver
     const goal = this.manualTint ? { ...this.fx, red: this.manualTint.red, green: this.manualTint.green } : (mood && weights ? mood : {});
     const k = Math.min(1, dt * 4);
-    for (const key of ['shadeL', 'shadeR', 'green']) this.fx[key] += ((goal[key] || 0) - this.fx[key]) * k;
+    for (const key of ['shadeL', 'shadeR', 'green', 'furrow']) this.fx[key] += ((goal[key] || 0) - this.fx[key]) * k;
     this.fx.red = this.manualTint ? this.fx.red + ((goal.red || 0) - this.fx.red) * k : (goal.red || 0);
     if (this.screenFx) this.screenFx.set(this.fx, this.constraints ? this.constraints.browLine(out) : null);
   }

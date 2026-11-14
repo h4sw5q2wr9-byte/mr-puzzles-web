@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
-import { Avatar } from './avatar.js?v=20261113.2058-c4348f0';
-import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261113.2058-c4348f0';
-import { Tracker } from './tracker.js?v=20261113.2058-c4348f0';
-import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261113.2058-c4348f0';
-import { FaceDriver, driverInput } from './face-driver.js?v=20261113.2058-c4348f0';
-import { saveModel, loadModel, clearModel } from './storage.js?v=20261113.2058-c4348f0';
-import { installLook } from './look.js?v=20261113.2058-c4348f0';
+import { Avatar } from './avatar.js?v=20261114.1543-6a1fb90';
+import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261114.1543-6a1fb90';
+import { Tracker } from './tracker.js?v=20261114.1543-6a1fb90';
+import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261114.1543-6a1fb90';
+import { FaceDriver, driverInput } from './face-driver.js?v=20261114.1543-6a1fb90';
+import { saveModel, loadModel, clearModel } from './storage.js?v=20261114.1543-6a1fb90';
+import { installLook } from './look.js?v=20261114.1543-6a1fb90';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -240,7 +240,7 @@ function syncUI() {
   for (const k of SLIDERS) { const el = $('#t-' + k); if (el) el.value = state.tuning[k]; }
   $('#o-style').value = state.tuning.style;
   $('#o-mirror').checked = state.mirror; $('#o-feed').checked = state.showFeed; $('#o-mood').checked = state.tuning.autoMoodColor;
-  $('#o-green').checked = state.tuning.greenFx;
+  $('#o-green').checked = state.tuning.greenFx; $('#o-glasses').checked = !!state.tuning.glasses;
   $('#o-pose').value = state.poseModel; $('#o-facing').value = state.facing; $('#o-delegate').value = state.delegate; $('#o-bg').value = state.bg; $('#o-look').value = state.look;
 }
 document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', async () => {
@@ -262,6 +262,7 @@ document.querySelectorAll('[data-tint]').forEach((b) => b.addEventListener('clic
 for (const k of SLIDERS) $('#t-' + k)?.addEventListener('input', (e) => { state.tuning[k] = +e.target.value; persist(); });
 $('#o-style').addEventListener('change', (e) => { state.tuning.style = e.target.value; persist(); });
 $('#o-green').addEventListener('change', (e) => { state.tuning.greenFx = e.target.checked; persist(); });
+$('#o-glasses').addEventListener('change', (e) => { state.tuning.glasses = e.target.checked; persist(); toast(e.target.checked ? 'Glasses mode: eye tracking is steadier, blinks need a clearer close' : 'Glasses mode off'); });
 $('#o-mirror').addEventListener('change', (e) => { state.mirror = e.target.checked; persist(); });
 $('#o-feed').addEventListener('change', (e) => { state.showFeed = e.target.checked; persist(); syncUI(); });
 $('#o-mood').addEventListener('change', (e) => { state.tuning.autoMoodColor = e.target.checked; persist(); });
