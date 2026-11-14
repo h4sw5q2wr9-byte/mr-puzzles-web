@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMUtils } from '@pixiv/three-vrm';
-import { AVATAR_GROUPS } from './face-map.js?v=20261114.1543-6a1fb90';
-import { buildFaceConstraints, primsFromThree } from './face-constraints.js?v=20261114.1543-6a1fb90';
-import { FACE_LIMITS } from './face-limits.js?v=20261114.1543-6a1fb90';
-import { FaceSmoother } from './face-smooth.js?v=20261114.1543-6a1fb90';
-import { installScreenFx } from './screen-fx.js?v=20261114.1543-6a1fb90';
+import { AVATAR_GROUPS } from './face-map.js?v=20261114.1638-6c504b5';
+import { buildFaceConstraints, primsFromThree } from './face-constraints.js?v=20261114.1638-6c504b5';
+import { FACE_LIMITS } from './face-limits.js?v=20261114.1638-6c504b5';
+import { FaceSmoother } from './face-smooth.js?v=20261114.1638-6c504b5';
+import { installScreenFx } from './screen-fx.js?v=20261114.1638-6c504b5';
 
-export { OneEuro } from './face-smooth.js?v=20261114.1543-6a1fb90';
+export { OneEuro } from './face-smooth.js?v=20261114.1638-6c504b5';
 
 export class Avatar {
   constructor(scene) { this.scene = scene; this.vrm = null; this.smoother = new FaceSmoother(); this.fx = { shadeL: 0, shadeR: 0, red: 0, green: 0, furrow: 0 }; this.manualTint = null; }
@@ -39,6 +39,8 @@ export class Avatar {
     const vrm = this.vrm; if (!vrm) return;
     const groups = AVATAR_GROUPS.filter((g) => this.groups.includes(g) && !g.startsWith('eyeCorrect'));
     const out = this.smoother.step(groups, weights, dt, opts);
+    // voice layer (mic): mouth reacts to loudness, added before the constraints so it stays in place
+    if (this.voice && (this.voice.on || this.voice.env > 0.003)) this.voice.apply(out, this.voiceStrength ?? 1);
     // constraints act on the FINAL (smoothed) weights, so what is shown always satisfies them
     if (this.constraints) this.lastConstraint = this.constraints.solve(out);
     for (const g in out) vrm.blendShapeProxy.setValue(g, out[g]);

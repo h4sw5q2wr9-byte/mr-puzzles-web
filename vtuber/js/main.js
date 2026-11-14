@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
-import { Avatar } from './avatar.js?v=20261114.1543-6a1fb90';
-import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261114.1543-6a1fb90';
-import { Tracker } from './tracker.js?v=20261114.1543-6a1fb90';
-import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261114.1543-6a1fb90';
-import { FaceDriver, driverInput } from './face-driver.js?v=20261114.1543-6a1fb90';
-import { saveModel, loadModel, clearModel } from './storage.js?v=20261114.1543-6a1fb90';
-import { installLook } from './look.js?v=20261114.1543-6a1fb90';
+import { Avatar } from './avatar.js?v=20261114.1638-6c504b5';
+import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261114.1638-6c504b5';
+import { Tracker } from './tracker.js?v=20261114.1638-6c504b5';
+import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261114.1638-6c504b5';
+import { FaceDriver, driverInput } from './face-driver.js?v=20261114.1638-6c504b5';
+import { saveModel, loadModel, clearModel } from './storage.js?v=20261114.1638-6c504b5';
+import { installLook } from './look.js?v=20261114.1638-6c504b5';
+import { Voice } from './voice.js?v=20261114.1638-6c504b5';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -47,6 +48,7 @@ const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
 let look = null;
 if (state.look === 'studio') state.look = 'medium'; else if (state.look === 'toon') state.look = 'low';
 const avatar = new Avatar(scene);
+const voice = new Voice(); avatar.voice = voice;
 let rig = null;
 const camTarget = new THREE.Vector3(0, 1.4, 0), camPos = new THREE.Vector3(0, 1.45, 1.3);
 
@@ -191,6 +193,7 @@ function loop() {
   } else if (!running && rig) {
     avatar.setFace(null, dt); rig.applyBody(null, null, { now: t / 1000, dt });
   }
+  if (voice.on || voice.env > 0.001) { const lv = voice.update(dt); $('#btn-mic').style.setProperty('--lvl', (lv * 100).toFixed(0) + '%'); }
   avatar.update(dt);
   frameCamera(dt);
   if (look) look.render(camera); else renderer.render(scene, camera);
@@ -216,9 +219,11 @@ let rec = null, chunks = [];
 function toggleRecord() {
   if (rec) { rec.stop(); return; }
   const s = canvas.captureStream(30);
-  const type = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  // mic on: the recording gets its audio (Mic button)
+  if (voice.on && voice.track()) s.addTrack(voice.track());
+  const type = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp9', 'video/webm'].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
   if (!type) { toast('Recording not supported in this browser'); return; }
-  rec = new MediaRecorder(s, { mimeType: type, videoBitsPerSecond: 6e6 }); chunks = [];
+  rec = new MediaRecorder(s, { mimeType: type, videoBitsPerSecond: 6e6, audioBitsPerSecond: 128e3 }); chunks = [];
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   rec.onstop = async () => {
     const blob = new Blob(chunks, { type }); rec = null; $('#btn-rec').classList.remove('on');
@@ -251,6 +256,14 @@ document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('clic
 $('#btn-cam').addEventListener('click', () => (running ? stopCamera() : startCamera()));
 $('#btn-cal').addEventListener('click', startCalibration);
 $('#btn-rec').addEventListener('click', toggleRecord);
+$('#btn-mic').addEventListener('click', async () => {
+  const b = $('#btn-mic');
+  if (voice.on) { voice.stop(); b.classList.remove('on'); b.style.setProperty('--lvl', '0%'); if (rec) toast('Mic off (recording continues silently)'); return; }
+  try {
+    await voice.start(); b.classList.add('on');
+    toast(rec ? 'Mic on: the mouth follows your voice (audio starts with the next recording)' : 'Mic on: the mouth follows your voice, recordings include audio');
+  } catch (e) { console.error(e); toast('Microphone not available (permission denied?)'); }
+});
 $('#btn-set').addEventListener('click', () => ($('#settings').hidden = !$('#settings').hidden));
 $('#btn-load').addEventListener('click', () => $('#file').click());
 $('#btn-builtin').addEventListener('click', async () => { await clearModel(); location.reload(); });

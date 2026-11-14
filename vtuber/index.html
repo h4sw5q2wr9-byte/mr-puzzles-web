@@ -29,6 +29,10 @@
   #btn-cam { min-width:84px; font-weight:600; background:var(--accent2); color:#102020; }
   #btn-cam.on { background:var(--accent); color:#fff; }
   #btn-rec.on { background:#d22; }
+  #btn-mic { --lvl:0%; }
+  .row.main { gap:6px; flex-wrap:nowrap; } .row.main button { padding:10px 11px; white-space:nowrap; } .row.main #btn-cam { min-width:70px; }
+  @media (max-width:380px) { .row.main { gap:5px; } .row.main button { padding:10px 8px; font-size:14px; } .row.main #btn-cam { min-width:0; } }
+  #btn-mic.on { background:linear-gradient(to top, var(--accent2) var(--lvl), var(--accent) var(--lvl)); border-color:transparent; }
   #settings { position:fixed; left:10px; right:10px; bottom:calc(env(safe-area-inset-bottom) + 130px); max-height:56dvh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); }
   #settings h3 { margin:4px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
   #settings label { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:6px 0; }
@@ -108,13 +112,14 @@
   <div class="row">
     <div class="seg"><button data-mode="face">Face</button><button data-mode="upper">Upper body</button><button data-mode="full">Full body</button></div>
   </div>
-  <div class="row">
+  <div class="row main">
     <button id="btn-cam">Start</button>
     <button id="btn-cal">Calibrate</button>
     <button id="btn-rec">● Rec</button>
+    <button id="btn-mic" aria-label="Microphone">🎙︎ Mic</button>
     <button id="btn-set">⚙︎</button>
   </div>
 </div>
-<script type="module" src="js/main.js?v=20261114.1543-6a1fb90"></script>
+<script type="module" src="js/main.js?v=20261114.1638-6c504b5"></script>
 </body>
 </html>
