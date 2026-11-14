@@ -1,19 +1,19 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
-import { Avatar } from './avatar.js?v=20261114.2057-63f8810';
-import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261114.2057-63f8810';
-import { Tracker } from './tracker.js?v=20261114.2057-63f8810';
-import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261114.2057-63f8810';
-import { FaceDriver, driverInput } from './face-driver.js?v=20261114.2057-63f8810';
-import { saveModel, loadModel, clearModel } from './storage.js?v=20261114.2057-63f8810';
-import { installLook } from './look.js?v=20261114.2057-63f8810';
-import { Voice } from './voice.js?v=20261114.2057-63f8810';
-import { TvController } from './tv.js?v=20261114.2057-63f8810';
-import { POSES, PosePlayer } from './poses.js?v=20261114.2057-63f8810';
-import { drawTracking } from './overlay.js?v=20261114.2057-63f8810';
-import { buildSettings } from './settings.js?v=20261114.2057-63f8810';
-import { PerfManager } from './perf.js?v=20261114.2057-63f8810';
-import { MODEL_CACHE } from './tracker.js?v=20261114.2057-63f8810';
+import { Avatar } from './avatar.js?v=20261114.2127-6706ca6';
+import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261114.2127-6706ca6';
+import { Tracker } from './tracker.js?v=20261114.2127-6706ca6';
+import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261114.2127-6706ca6';
+import { FaceDriver, driverInput } from './face-driver.js?v=20261114.2127-6706ca6';
+import { saveModel, loadModel, clearModel } from './storage.js?v=20261114.2127-6706ca6';
+import { installLook } from './look.js?v=20261114.2127-6706ca6';
+import { Voice } from './voice.js?v=20261114.2127-6706ca6';
+import { TvController } from './tv.js?v=20261114.2127-6706ca6';
+import { POSES, PosePlayer } from './poses.js?v=20261114.2127-6706ca6';
+import { drawTracking } from './overlay.js?v=20261114.2127-6706ca6';
+import { buildSettings } from './settings.js?v=20261114.2127-6706ca6';
+import { PerfManager } from './perf.js?v=20261114.2127-6706ca6';
+import { MODEL_CACHE } from './tracker.js?v=20261114.2127-6706ca6';
 
 const $ = (s) => document.querySelector(s);
 // load-time marks (ms since navigation): see app.timings
@@ -96,7 +96,7 @@ function frameCamera(dt, snap = false) {
 
 // ---------------------------------------------------------------- startup screen + tracker chip
 const bootEl = $('#boot');
-function bootRow(k, text, cls = '') { const li = bootEl.querySelector(`li[data-k="${k}"]`); if (!li) return; li.className = cls; li.querySelector('span').textContent = text; }
+function bootRow(k, text, cls = '') { const li = bootEl.isConnected && bootEl.querySelector(`li[data-k="${k}"]`); if (!li) return; li.className = cls; li.querySelector('span').textContent = text; }
 const neededTracker = (k) => k === 'face' || (state.mode !== 'face' && (k === 'pose' || (k === 'hand' && state.body.hands)));
 const TNAME = { face: 'Face', pose: 'Body', hand: 'Hands' };
 function trackerText(k) {
@@ -124,10 +124,11 @@ function refreshTrackerUI() {
 function bootDone() {
   if (booted) return; booted = true;
   bootRow('avatar', 'ready', 'ready');
-  if (TEST) bootEl.remove(); else { bootEl.classList.add('gone'); setTimeout(() => bootEl.remove(), 600); }
+  // the intro plays to its end (index.html), then the picture switches over to the app
+  if (window.__intro) window.__intro.done(TEST); else bootEl.remove();
   refreshTrackerUI();
 }
-function bootFailed(msg) { bootRow('avatar', msg || 'failed', 'failed'); $('#bootnote').textContent = 'The avatar could not be loaded.'; setTimeout(() => { bootEl.classList.add('gone'); setTimeout(() => bootEl.remove(), 600); }, 1500); }
+function bootFailed(msg) { bootRow('avatar', msg || 'failed', 'failed'); bootEl.classList.add('slow'); $('#bootnote').textContent = 'The avatar could not be loaded.'; setTimeout(() => window.__intro ? window.__intro.done() : bootEl.remove(), 1500); }
 
 // ---------------------------------------------------------------- model loading
 async function useModel(buf, remember = true) {
@@ -267,6 +268,10 @@ function processFrame(src, nowMs, dt) {
   // face ----------------------------------------------------------------
   const fl = res.face?.faceLandmarks?.[0];
   stats.face = !!fl; lastFrameAt = performance.now(); lostFor = fl ? 0 : lostFor + dt;
+  foundFor = fl ? foundFor + dt : 0;
+  // how far the face is from the picture's edge: a face that is leaving the picture gives noisy angles
+  if (fl) { let x0 = 1, x1 = 0, y0 = 1, y1 = 0; for (let i = 0; i < fl.length; i += 4) { const p = fl[i]; if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
+    const margin = Math.min(x0, y0, 1 - x1, 1 - y1); faceConf = Math.max(0, Math.min(1, margin / 0.06)); faceConf = faceConf * faceConf * (3 - 2 * faceConf); } else faceConf = 0;
   if (fl) {
     const inp = driverInput(res.face, w / h);
     const r = driver.step(inp, dt, { tuning: state.tuning, mirror: state.mirror });
@@ -276,7 +281,7 @@ function processFrame(src, nowMs, dt) {
     // (Kalidokit rescales the landmarks it gets in place: give it a copy, the overlay needs the originals)
     const fs = Kalidokit.Face.solve(fl.map((p) => ({ x: p.x, y: p.y, z: p.z })), { runtime: 'mediapipe', imageSize: size, smoothBlink: false });
     const hipsYaw = 0;
-    if (fs) rig.applyHead(fs, dt, hipsYaw);
+    if (fs) rig.applyHead(fs, dt, hipsYaw, faceConf);
   } else { avatar.setFace(null, dt); rig.relaxHead(dt); }
   // body ----------------------------------------------------------------
   let pose = null, hands = null;
@@ -307,21 +312,36 @@ function drawPreview(res) {
 }
 feed.addEventListener('click', () => { state.preview.size = state.preview.size === 'large' ? 'small' : 'large'; persist(); syncUI(); });
 // ---------------------------------------------------------------- TV (stand-by card + glitches)
-let lostFor = 99, lastFrameAt = -1e9;
+let lostFor = 99, lastFrameAt = -1e9, foundFor = 0, faceConf = 0;
+const yawHist = [];      // [t, yaw] of the filtered head turn, for detecting a real head shake
 const headQ = new THREE.Quaternion(), headQPrev = new THREE.Quaternion(); let headQValid = false;
 function wantStandby() {
   if (!state.tv.standby || !avatar.vrm || avatar.posing) return false;
   const tracking = running || performance.now() - lastFrameAt < 1500;   // live camera or a test driving frames
-  return tracking ? lostFor > 1.0 : !voice.on;                         // camera off: card, unless talking via the mic
+  // card after 1 s without a face; back to the face only once it has been found for a moment (a face
+  // flickering in and out at the picture's edge must not switch it back and forth)
+  if (tracking) return tv.shown ? foundFor < 0.25 : lostFor > 1.0;
+  return !voice.on;                         // camera off: card, unless talking via the mic
 }
 function tvStep(dt) {
   if (!avatar.vrm || !avatar.screenFx) return;
-  // how fast the head turns (rad/s): a hard shake makes the picture tear
+  // a real head SHAKE ("no!"): the filtered head turn reverses direction at least 3 times within
+  // ~1.2 s with some size, while the face is clearly in view. A single noisy jump never counts.
   let speed = 0;
-  avatar.vrm.humanoid.getBoneNode('head').getWorldQuaternion(headQ);
-  if (headQValid && dt > 0) speed = 2 * Math.acos(Math.min(1, Math.abs(headQ.dot(headQPrev)))) / dt;
-  headQPrev.copy(headQ); headQValid = true;
-  const o = tv.update(dt, wantStandby(), lostFor > 0 ? 0 : speed, { glitches: state.tv.glitches, crt: state.tv.crt });
+  const tNow = performance.now() / 1000;
+  const tracking = running || performance.now() - lastFrameAt < 1500;
+  if (rig && tracking && lostFor === 0 && faceConf > 0.6) yawHist.push([tNow, rig.headYaw()]); else yawHist.length = 0;
+  while (yawHist.length && tNow - yawHist[0][0] > 1.3) yawHist.shift();
+  if (yawHist.length > 5) {
+    let rev = 0, dir = 0, ext = yawHist[0][1];
+    for (const [, y] of yawHist) {
+      const d = y - ext;
+      if (dir >= 0 && d > 0) ext = y; else if (dir <= 0 && d < 0) ext = y;
+      if (Math.abs(d) > 0.09 && Math.sign(d) !== dir) { if (dir !== 0) rev++; dir = Math.sign(d); ext = y; }
+    }
+    if (rev >= 3) speed = 8;          // tv.update maps this to the full shake glitch
+  }
+  const o = tv.update(dt, wantStandby(), speed, { glitches: state.tv.glitches, crt: state.tv.crt });
   if (state.tv.glitches) o.glitch = Math.max(o.glitch, poser.glitch);      // e.g. a jolt of static on Shock
   avatar.screenFx.setTv(o);
 }
@@ -646,5 +666,5 @@ window.app = {
   tv, get lostFor() { return lostFor; }, takePhoto, setClean, poser, voice, drawTracking, get camera() { return camera; },
   /** test: render the hand of the avatar side s up close */
   renderHand(s) { const h = avatar.vrm.humanoid.getBoneNode(s + 'Hand').getWorldPosition(new THREE.Vector3()); const m = avatar.vrm.humanoid.getBoneNode(s + 'MiddleProximal').getWorldPosition(new THREE.Vector3()); const c = h.clone().lerp(m, 0.6); camera.position.set(c.x, c.y + 0.05, c.z + 0.55); camera.lookAt(c); if (look) look.render(camera); else renderer.render(scene, camera); },
-  simulateFace(found, dt = 1 / 30) { lastFrameAt = performance.now(); lostFor = found ? 0 : lostFor + dt; },
+  simulateFace(found, dt = 1 / 30) { lastFrameAt = performance.now(); lostFor = found ? 0 : lostFor + dt; foundFor = found ? foundFor + dt : 0; faceConf = found ? 1 : 0; },
 };

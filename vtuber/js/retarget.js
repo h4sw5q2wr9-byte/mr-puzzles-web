@@ -197,8 +197,10 @@ export class Retarget {
         e.set(clamp(e.x, -0.45, 0.45) * 0.7, clamp(e.y, -0.9, 0.9) * 0.8, clamp(e.z, -0.45, 0.45) * 0.8, 'YXZ');
         R = Q().setFromEuler(e);
         const half = Q().slerp(R, 0.5);
-        this.setWorld('Spine', half.clone().multiply(this.rest.Spine.world), a * torso);
-        this.setWorld('Chest', R.clone().multiply(this.rest.Chest.world), a * torso);
+        // the torso follows only as far as both shoulders are really seen
+        const tc = smoothstep(0.5, 0.85, Math.min(vis(11), vis(12)));
+        this.setWorld('Spine', half.clone().multiply(this.rest.Spine.world), a * torso * tc);
+        this.setWorld('Chest', R.clone().multiply(this.rest.Chest.world), a * torso * tc);
       }
     }
 

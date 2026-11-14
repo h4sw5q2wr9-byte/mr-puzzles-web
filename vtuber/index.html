@@ -116,23 +116,33 @@
   .set-row.stack .set-btns { justify-content:flex-start; }
   .set-row.stack .set-btns button { flex:1 1 auto; }
 
-  /* startup: an old TV warming up (static CSS; only the rows change, on real events) */
-  #boot { position:fixed; inset:0; z-index:50; display:grid; place-items:center; background:radial-gradient(ellipse at 50% 40%, #2b2140 0%, #120c1c 70%); transition:opacity .45s ease; }
-  #boot.gone { opacity:0; pointer-events:none; }
-  #boot .box { width:min(340px, 86vw); text-align:center; }
-  #boot .tube { position:relative; aspect-ratio:4/3; border-radius:22% / 18%; background:#1b1426; border:10px solid #b9aed0; box-shadow:0 0 0 3px #6d5f8a, 0 18px 50px rgba(0,0,0,.55), inset 0 0 40px rgba(0,0,0,.8); overflow:hidden; display:grid; place-items:center; }
-  #boot .tube::before { content:''; position:absolute; inset:0; background:repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 3px); pointer-events:none; }
-  #boot .tube::after { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at 50% 45%, rgba(200,230,255,.18), transparent 60%); animation:bootglow 2.4s ease-in-out infinite alternate; pointer-events:none; }
-  @keyframes bootglow { from { opacity:.45; } to { opacity:1; } }
-  @media (prefers-reduced-motion: reduce) { #boot .tube::after { animation:none; } }
-  #boot .brand { font:700 26px/1.1 Georgia, 'Times New Roman', serif; letter-spacing:.02em; color:#efeaf8; text-shadow:0 0 12px rgba(180,220,255,.5); }
-  #boot .sub { margin-top:6px; font-size:13px; color:#b3a6c9; }
-  #boot ul { list-style:none; margin:18px 0 0; padding:0; text-align:left; font-size:14px; }
-  #boot li { display:flex; justify-content:space-between; gap:12px; padding:7px 4px; border-bottom:1px solid rgba(255,255,255,.08); }
-  #boot li b { font-weight:500; }
-  #boot li span { color:#b3a6c9; font-variant-numeric:tabular-nums; }
-  #boot li.ready span { color:#46c9c4; } #boot li.failed span { color:#ff8fa3; } #boot li.later span { color:#7d7095; }
-  #boot .note { margin-top:12px; font-size:12px; color:#7d7095; min-height:1.2em; }
+  /* intro (PuzzleVision / ZAMination style): CRT switches on, the logo flickers in, the line types out;
+     the app appears once the avatar is ready (at least ~3 s). Real loading status shows only if slow. */
+  #boot { position:fixed; inset:0; z-index:50; background:#000; display:grid; place-items:center; overflow:hidden; cursor:default; }
+  #boot .crt { position:absolute; inset:0; display:grid; place-items:center; transform-origin:50% 50%; animation:crt-on .55s cubic-bezier(.2,.8,.3,1) .2s both; }
+  #boot .crt::after { content:''; position:absolute; inset:0; pointer-events:none; background:repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px), radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,.55)); }
+  @keyframes crt-on { 0% { transform:scale(1, .004); filter:brightness(6); } 55% { transform:scale(1, .004); filter:brightness(6); } 100% { transform:scale(1, 1); filter:brightness(1); } }
+  #boot .stack { display:flex; flex-direction:column; align-items:center; gap:clamp(18px, 4vh, 34px); }
+  #boot .logo { width:clamp(110px, 28vw, 170px); height:auto; opacity:0; animation:logo-in .55s steps(1, end) .75s forwards; filter:drop-shadow(0 0 10px rgba(255,255,255,.18)); }
+  @keyframes logo-in { 0% { opacity:.0; } 15% { opacity:.8; } 25% { opacity:.1; } 40% { opacity:1; } 55% { opacity:.35; } 70%, 100% { opacity:1; } }
+  /* typing with transform animations only (they keep running while the page is busy building the avatar):
+     a black shutter slides off the text one character at a time, the cursor rides along */
+  #boot .line { position:relative; overflow:hidden; font-family:ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size:clamp(17px, 5.2vw, 26px); letter-spacing:.12em; color:#f2f2f2; white-space:pre; line-height:1.4; padding-right:1.2ch; text-shadow:0 0 6px rgba(255,255,255,.25); }
+  #boot .line .shutter { position:absolute; inset:0; background:#000; animation:type 1.5s steps(23, end) 1.25s forwards; }
+  #boot .line .cur { position:absolute; left:0; bottom:.18em; width:calc(1ch + .12em); height:2px; background:#f2f2f2; animation:cur-move 1.5s steps(23, end) 1.25s forwards, blink 1s steps(1) 2.8s infinite; }
+  @keyframes type { to { transform:translateX(100%); } }
+  @keyframes cur-move { to { transform:translateX(2300%); } }
+  @keyframes blink { 50% { opacity:0; } }
+  #boot .status { position:absolute; left:0; right:0; bottom:calc(env(safe-area-inset-bottom) + 28px); text-align:center; font:12px/1.6 ui-monospace, monospace; letter-spacing:.08em; color:#8a8a8a; text-transform:uppercase; opacity:0; transition:opacity .4s; }
+  #boot.slow .status { opacity:1; }
+  #boot .status ul { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; justify-content:center; gap:4px 16px; }
+  #boot .status li { display:inline; } #boot .status li b { font-weight:400; color:#bdbdbd; } #boot .status li span::before { content:' '; }
+  #boot .status li.ready span { color:#46c9c4; } #boot .status li.failed span { color:#ff8fa3; } #boot .status li.later { display:none; }
+  #boot .note { margin-top:6px; text-transform:none; letter-spacing:0; }
+  #boot.off .crt { animation:crt-off .42s cubic-bezier(.6,0,.9,.4) forwards; }
+  #boot.off { transition:background .2s .3s; background:transparent; }
+  @keyframes crt-off { 0% { transform:scale(1, 1); filter:brightness(1); } 60% { transform:scale(1, .006); filter:brightness(5); } 100% { transform:scale(0, .006); filter:brightness(8); opacity:0; } }
+  @media (prefers-reduced-motion: reduce) { #boot .crt, #boot .logo, #boot .line .shutter, #boot .line .cur { animation:none; opacity:1; } #boot .line .shutter { display:none; } #boot.off { opacity:0; transition:opacity .3s; } #boot.off .crt { animation:none; } }
   #chip { position:fixed; top:calc(env(safe-area-inset-top) + 30px); right:12px; font-size:12px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:4px 10px; color:var(--muted); transition:opacity .4s; }
   #chip.done { opacity:0; }
   html.clean #chip { display:none; }
@@ -148,30 +158,55 @@
 </script>
 </head>
 <body>
-<div id="boot">
-  <div class="box">
-    <div class="tube"><div><div class="brand">PuzzleVision</div><div class="sub" id="bootsub">warming up the tubes…</div></div></div>
+<div id="boot" role="status" aria-label="PuzzleVision is starting">
+  <div class="crt">
+    <div class="stack">
+      <img class="logo" src="assets/logo.png" alt="PuzzleVision" width="238" height="313">
+      <div class="line" id="bootline" aria-label="You've finally arrived."><span class="txt">YOU’VE FINALLY ARRIVED.</span><span class="shutter"></span><span class="cur"></span></div>
+    </div>
+  </div>
+  <div class="status">
     <ul>
-      <li data-k="avatar"><b>3D avatar</b><span>starting…</span></li>
-      <li data-k="face"><b>Face tracking</b><span>waiting</span></li>
-      <li data-k="pose"><b>Body tracking</b><span>waiting</span></li>
-      <li data-k="hand"><b>Hand tracking</b><span>waiting</span></li>
+      <li data-k="avatar"><b>Avatar</b><span>starting…</span></li>
+      <li data-k="face"><b>Face</b><span>waiting</span></li>
+      <li data-k="pose"><b>Body</b><span>waiting</span></li>
+      <li data-k="hand"><b>Hands</b><span>waiting</span></li>
     </ul>
-    <div class="note" id="bootnote">You can start as soon as the avatar is ready; tracking keeps loading in the background.</div>
+    <div class="note" id="bootnote"></div>
   </div>
 </div>
 <div id="chip" class="done" hidden></div>
 <script>
-  // safety net: the startup screen must never trap anyone (script error, very slow network)
+  // intro: types the line, enforces a minimum time, lets a tap skip once the app is ready.
+  // window.__intro.done() is called by the app when the avatar is ready (main.js bootDone).
   (function () {
     var boot = document.getElementById('boot'), note = document.getElementById('bootnote');
+    var reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var MIN = reduced ? 1200 : 3400, t0 = performance.now();      // the typing ends at ~2.75 s, then a short hold
+    var ready = false, gone = false;
+    function exit() {
+      if (gone || !boot.isConnected) return; gone = true;
+      boot.classList.add('off'); setTimeout(function () { boot.remove(); }, 480);
+    }
+    window.__intro = {
+      done: function (immediate) {
+        ready = true;
+        if (immediate) { gone = true; boot.remove(); return; }
+        setTimeout(exit, Math.max(0, MIN - (performance.now() - t0)));
+      },
+    };
+    boot.addEventListener('click', function () { if (ready) exit(); });
+    // still loading after the intro: show the real status
+    setTimeout(function () { if (!ready && boot.isConnected) boot.classList.add('slow'); }, MIN);
+    // safety net: the intro must never trap anyone (script error, very slow network)
     function offer(msg, label, act) {
-      if (!boot || !boot.isConnected) return;
-      note.innerHTML = msg + ' <button id="bootbtn" style="min-height:32px;padding:4px 10px;margin-left:6px">' + label + '</button>';
-      document.getElementById('bootbtn').onclick = act;
+      if (!boot.isConnected) return;
+      boot.classList.add('slow');
+      note.innerHTML = msg + ' <button id="bootbtn" style="min-height:30px;padding:3px 10px;margin-left:6px;font:inherit">' + label + '</button>';
+      document.getElementById('bootbtn').onclick = function (e) { e.stopPropagation(); act(); };
     }
     window.addEventListener('error', function (e) { offer('Something went wrong (' + String(e.message || 'error').slice(0, 80) + ').', 'Reload', function () { location.reload(); }); });
-    setTimeout(function () { offer('This is taking long (slow connection?).', 'Continue anyway', function () { boot.remove(); }); }, 25000);
+    setTimeout(function () { offer('This is taking long (slow connection?).', 'Continue anyway', function () { exit(); }); }, 25000);
   })();
 </script>
 <canvas id="stage"></canvas>
@@ -204,6 +239,6 @@
     <button id="btn-set">⚙︎</button>
   </div>
 </div>
-<script type="module" src="js/main.js?v=20261114.2057-63f8810"></script>
+<script type="module" src="js/main.js?v=20261114.2127-6706ca6"></script>
 </body>
 </html>

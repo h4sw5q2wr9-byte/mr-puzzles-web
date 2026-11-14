@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
 import { VRMSchema } from '@pixiv/three-vrm';
-import { Retarget } from './retarget.js?v=20261114.2057-63f8810';
+import { Retarget } from './retarget.js?v=20261114.2127-6706ca6';
 
 const R = Kalidokit.Utils.RestingDefault.Pose;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -93,25 +93,52 @@ export class BodyRig {
   }
 
   /** head rotation (Kalidokit); the face's left/right is set separately by the "Invert face" setting */
-  applyHead(face, dt, hipsYaw = 0) {
+  /**
+   * head turn from the face. conf (0..1) = how much the face can be trusted (low when it is leaving the
+   * picture or partly hidden): the head then barely follows instead of chasing noise. The rotation is
+   * filtered (One-Euro) and jumps faster than a head can turn must be confirmed by the next frames.
+   */
+  applyHead(face, dt, hipsYaw = 0, conf = 1) {
     if (!face) return;
     const h = face.head;
     const t = { x: clamp(h.x, -0.8, 0.8), y: clamp(h.y - hipsYaw, -0.9, 0.9), z: clamp(h.z, -0.6, 0.6) };
+    _e.set(t.x, t.y, t.z, 'XYZ'); const qT = new THREE.Quaternion().setFromEuler(_e);
+    const st = this.headFilt || (this.headFilt = { q: new THREE.Quaternion(), vs: 0, lastRaw: null, pend: null, pendN: 0, age: 0 });
+    const limit = Math.max(0.2, 7 * dt);
+    st.age += dt;
+    if (st.lastRaw && st.age < 0.4) {
+      const j = st.lastRaw.angleTo(qT);
+      if (j > limit) {
+        if (st.pend && st.pend.angleTo(qT) < limit) st.pendN++; else st.pendN = 1;
+        (st.pend || (st.pend = new THREE.Quaternion())).copy(qT);
+        if (st.pendN < 2) qT.copy(st.q);        // not confirmed yet: hold
+      } else st.pendN = 0;
+    }
+    if (st.pendN === 0 || st.pendN >= 2) { st.age = 0; (st.lastRaw || (st.lastRaw = new THREE.Quaternion())).copy(qT); }
+    const jump = st.q.angleTo(qT);
+    st.vs += (jump / Math.max(dt, 1 / 240) - st.vs) * alphaHz(3, dt);
+    st.q.slerp(qT, alphaHz(1.6 + 0.7 * st.vs, dt) * clamp(conf, 0.06, 1));
+    this.headConf = conf;
     // the face gives the head's turn relative to the CAMERA; the chest may already be turned (body
     // tracking), so only the rest goes into neck + head (otherwise a turned torso doubles the head turn)
-    _e.set(t.x, t.y, t.z, 'XYZ'); const qF = new THREE.Quaternion().setFromEuler(_e);
+    const qF = st.q.clone();
     const chest = this.bone('Chest') || this.bone('Spine'), rest = this.rt && this.rt.rest[chest === this.bone('Chest') ? 'Chest' : 'Spine'];
     if (chest && rest) {
       chest.updateWorldMatrix(true, false);
       const qC = chest.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(rest.world);
       qF.premultiply(qC);
     }
-    const k = rate(0.35, dt);
+    // an untrusted face (leaving the picture / covered): the head simply rides along with the chest
+    const k = alphaHz(14, dt) * clamp(conf, 0.04, 1);
     this.bone('Neck')?.quaternion.slerp(new THREE.Quaternion().slerp(qF, 0.55), k);
     this.bone('Head')?.quaternion.slerp(new THREE.Quaternion().slerp(qF, 0.45), k);
   }
+  /** the head's filtered turn relative to the camera (yaw, radians) and how much it is trusted */
+  headYaw() { if (!this.headFilt) return 0; _e.setFromQuaternion(this.headFilt.q, 'YXZ'); return _e.y; }
 
-  relaxHead(dt) { this.rot('Neck', { x: 0, y: 0, z: 0 }, 1, 0.05, dt); this.rot('Head', { x: 0, y: 0, z: 0 }, 1, 0.05, dt); }
+  relaxHead(dt) {
+    if (this.headFilt) { this.headFilt.q.slerp(new THREE.Quaternion(), alphaHz(0.8, dt)); this.headFilt.lastRaw = null; this.headFilt.pendN = 0; }
+    this.headConf = 0; this.rot('Neck', { x: 0, y: 0, z: 0 }, 1, 0.05, dt); this.rot('Head', { x: 0, y: 0, z: 0 }, 1, 0.05, dt); }
 
   /**
    * @param pose   Kalidokit.Pose.solve output or null (lost)
