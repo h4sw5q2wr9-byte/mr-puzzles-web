@@ -67,6 +67,9 @@ export function buildSettings(root, tabs, items) {
       const bs = el('div', 'set-btns');
       for (const [l, fn, cls, id] of it.buttons) { const b = el('button', cls || '', l); if (id) b.id = id; b.addEventListener('click', () => { fn(b); refreshAll(); }); bs.append(b); }
       row.append(text, bs);
+    } else if (it.type === 'live') {
+      const box = el('div', 'set-live'); row.append(text, box);
+      refresh = () => { if (!root.hidden) box.innerHTML = it.html(); };
     } else if (it.type === 'note') {
       row.append(text);
     }

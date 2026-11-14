@@ -75,7 +75,11 @@ eyes, brows, rainbow mouth and screen effects.
 * **Tracker view:** the camera preview can show what the tracker sees (face, body skeleton, hands).
 * **Settings:** tabs with switches and live sliders; a bottom sheet on phones, a side panel on
   desktop.
-* **Faster loading:** tracking models are kept on the device and prepared in the background.
+* **Startup and speed:**
+  * A TV-style startup screen shows real progress, and the app is usable once the avatar is ready.
+  * Tracking models are kept on the device and prepared in the background; face tracking comes first.
+  * Quality switches are instant after a short background preparation.
+  * Optional automatic performance mode; ⚙︎ → Speed has live diagnostics and recovery.
 * **Quality:** low (flat toon), medium (lit) and high (rendered look).
 * **Settings** (⚙︎, remembered on the device):
   * tracking style (ZAMination, Balanced, Accurate) and exaggeration sliders

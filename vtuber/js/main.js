@@ -1,17 +1,19 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
-import { Avatar } from './avatar.js?v=20261114.2020-4522d59';
-import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261114.2020-4522d59';
-import { Tracker } from './tracker.js?v=20261114.2020-4522d59';
-import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261114.2020-4522d59';
-import { FaceDriver, driverInput } from './face-driver.js?v=20261114.2020-4522d59';
-import { saveModel, loadModel, clearModel } from './storage.js?v=20261114.2020-4522d59';
-import { installLook } from './look.js?v=20261114.2020-4522d59';
-import { Voice } from './voice.js?v=20261114.2020-4522d59';
-import { TvController } from './tv.js?v=20261114.2020-4522d59';
-import { POSES, PosePlayer } from './poses.js?v=20261114.2020-4522d59';
-import { drawTracking } from './overlay.js?v=20261114.2020-4522d59';
-import { buildSettings } from './settings.js?v=20261114.2020-4522d59';
+import { Avatar } from './avatar.js?v=20261114.2057-63f8810';
+import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261114.2057-63f8810';
+import { Tracker } from './tracker.js?v=20261114.2057-63f8810';
+import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261114.2057-63f8810';
+import { FaceDriver, driverInput } from './face-driver.js?v=20261114.2057-63f8810';
+import { saveModel, loadModel, clearModel } from './storage.js?v=20261114.2057-63f8810';
+import { installLook } from './look.js?v=20261114.2057-63f8810';
+import { Voice } from './voice.js?v=20261114.2057-63f8810';
+import { TvController } from './tv.js?v=20261114.2057-63f8810';
+import { POSES, PosePlayer } from './poses.js?v=20261114.2057-63f8810';
+import { drawTracking } from './overlay.js?v=20261114.2057-63f8810';
+import { buildSettings } from './settings.js?v=20261114.2057-63f8810';
+import { PerfManager } from './perf.js?v=20261114.2057-63f8810';
+import { MODEL_CACHE } from './tracker.js?v=20261114.2057-63f8810';
 
 const $ = (s) => document.querySelector(s);
 // load-time marks (ms since navigation): see app.timings
@@ -46,6 +48,9 @@ if (!(saved.v >= 3) || saved.v === 4) { for (const k of ['view', 'track', 'previ
 // v5: the face is inverted by default -> switch it on once for everyone
 if (!(saved.v >= 5)) state.mirror = true;
 state.v = 5; delete state.neutral;
+state.perf = { auto: true, ...(saved.perf || {}) };
+// automated tests run on a slow software GPU: no automatic downgrades unless a test asks for them
+if (TEST && !saved.perf) state.perf.auto = false;
 // camera preview: off | camera | overlay (camera + what the tracker sees) | tracking (tracker only)
 // (after the migration above: an old version used the key 'preview' for something else)
 state.preview = { mode: saved.showFeed === false ? 'off' : 'camera', size: 'small', ...(saved.v >= 5 && saved.preview && saved.preview.mode ? saved.preview : {}) };
@@ -89,15 +94,55 @@ function frameCamera(dt, snap = false) {
   camera.position.copy(camPos); camera.lookAt(camTarget);
 }
 
+// ---------------------------------------------------------------- startup screen + tracker chip
+const bootEl = $('#boot');
+function bootRow(k, text, cls = '') { const li = bootEl.querySelector(`li[data-k="${k}"]`); if (!li) return; li.className = cls; li.querySelector('span').textContent = text; }
+const neededTracker = (k) => k === 'face' || (state.mode !== 'face' && (k === 'pose' || (k === 'hand' && state.body.hands)));
+const TNAME = { face: 'Face', pose: 'Body', hand: 'Hands' };
+function trackerText(k) {
+  const st = tracker.status[k], need = neededTracker(k);
+  switch (st.state) {
+    case 'downloading': return [st.total ? `downloading ${Math.round(st.got / st.total * 100)} %` : 'downloading…', ''];
+    case 'downloaded': return [need ? 'downloaded, starting soon' : 'downloaded (used in body modes)', need ? '' : 'later'];
+    case 'starting': return ['starting…', ''];
+    case 'ready': return ['ready', 'ready'];
+    case 'failed': return ['failed', 'failed'];
+    default: return [need ? 'waiting' : (k === 'hand' && !state.body.hands ? 'off' : 'not needed in Face mode'), need ? '' : 'later'];
+  }
+}
+let booted = false, chipT = 0;
+function refreshTrackerUI() {
+  for (const k of ['face', 'pose', 'hand']) { const [t, c] = trackerText(k); bootRow(k, t, c); }
+  const chip = $('#chip');
+  if (!booted) return;
+  const need = ['face', 'pose', 'hand'].filter(neededTracker);
+  const allReady = need.every((k) => ['ready', 'failed'].includes(tracker.status[k].state));
+  if (allReady) { clearTimeout(chipT); chipT = setTimeout(() => chip.classList.add('done'), 1500); }
+  else { clearTimeout(chipT); chip.hidden = false; chip.classList.remove('done'); }
+  chip.textContent = need.map((k) => { const st = tracker.status[k]; return TNAME[k] + ' ' + (st.state === 'ready' ? '✓' : st.state === 'failed' ? '✕' : st.state === 'downloading' && st.total ? Math.round(st.got / st.total * 100) + '%' : '…'); }).join(' · ');
+}
+function bootDone() {
+  if (booted) return; booted = true;
+  bootRow('avatar', 'ready', 'ready');
+  if (TEST) bootEl.remove(); else { bootEl.classList.add('gone'); setTimeout(() => bootEl.remove(), 600); }
+  refreshTrackerUI();
+}
+function bootFailed(msg) { bootRow('avatar', msg || 'failed', 'failed'); $('#bootnote').textContent = 'The avatar could not be loaded.'; setTimeout(() => { bootEl.classList.add('gone'); setTimeout(() => bootEl.remove(), 600); }, 1500); }
+
 // ---------------------------------------------------------------- model loading
 async function useModel(buf, remember = true) {
   status('Loading avatar…');
   mark('vrmBytes');
+  bootRow('avatar', 'building…');
+  // the tracking models download while the avatar is being built (network only, no CPU)
+  if (!TEST) tracker.prefetch({ needPose: state.mode !== 'face', needHands: state.mode !== 'face' && state.body.hands, poseModel: state.poseModel });
   await avatar.load(buf);
   mark('vrmParsed');
   rig = new BodyRig(avatar.vrm); Object.assign(rig.opts, state.body);
   look?.dispose(); look = installLook(THREE, { renderer, scene, vrm: avatar.vrm }); look.set(state.look); applyBackground();
   tv.reset(wantStandby()); headQValid = false;
+  look.pixelCap = null; applyPerf(); perf.hold(6000);
+  prepQueue = ['low', 'medium', 'high'].filter((m) => m !== look.mode);
   if (!avatar.hasPuzzlesFace) toast('This VRM has no Mr. Puzzles face groups – only head/body will move.');
   else if (avatar.missingGroups.length) toast('This is an older Mr. Puzzles model: tap ⚙︎ → Advanced → Use built-in Mr. Puzzles for the new eye shapes.', 9000);
   if (remember) saveModel(buf, { kind: 'custom' }).catch(() => {});
@@ -120,7 +165,7 @@ async function fetchWithProgress(url, label) {
   const reader = r.body.getReader(), parts = []; let got = 0;
   for (;;) {
     const { done, value } = await reader.read(); if (done) break;
-    parts.push(value); got += value.length; status(`${label} ${Math.round(got / total * 100)} %`);
+    parts.push(value); got += value.length; if (booted) status(`${label} ${Math.round(got / total * 100)} %`); bootRow('avatar', `downloading ${Math.round(got / total * 100)} %`);
   }
   const out = new Uint8Array(got); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
   return out.buffer;
@@ -133,7 +178,7 @@ async function bootModel() {
     if (stored && stored.meta.kind === 'custom') return await useModel(stored.buf, false);
     let version = null;
     try { const r = await fetch('MrPuzzles.version.json', { cache: 'no-cache' }); if (r.ok) version = (await r.json()).version; } catch {}
-    if (stored && stored.meta.kind === 'bundled' && (!version || stored.meta.version === version)) return await useModel(stored.buf, false);
+    if (stored && stored.meta.kind === 'bundled' && (!version || stored.meta.version === version)) { bootRow('avatar', 'from this device'); return await useModel(stored.buf, false); }
     if (version) {
       const buf = await fetchWithProgress('MrPuzzles.vrm?v=' + encodeURIComponent(version), 'Downloading Mr. Puzzles…');
       saveModel(buf, { kind: 'bundled', version }).catch(() => {});
@@ -141,11 +186,13 @@ async function bootModel() {
     }
     if (stored) return await useModel(stored.buf, false);          // offline: use whatever we have
   } catch (e) { console.warn(e); status(''); }
+  bootFailed();
   $('#empty').hidden = false;
 }
 
 // ---------------------------------------------------------------- tracking
 const tracker = new Tracker();
+tracker.onChange(() => refreshTrackerUI());
 const video = $('#video');
 let stream = null, running = false, lastVideoTime = -1;
 const driver = new FaceDriver();
@@ -161,28 +208,42 @@ function warmUp() {
   setTimeout(() => {
     tracker.prefetch(needs);
     const go = () => { if (!running) tracker.init({ ...needs, delegate: state.delegate }).then(() => mark('trackerWarm')).catch((e) => console.warn('warm-up', e)); };
-    (window.requestIdleCallback || ((f) => setTimeout(f, 300)))(go, { timeout: 4000 });
-  }, 1200);
+    (window.requestIdleCallback || ((f) => setTimeout(f, 300)))(go, { timeout: 2500 });
+  }, 400);
 }
 async function startCamera() {
   if (!avatar.vrm) { toast('Load the Mr. Puzzles .vrm first'); return; }
   try {
     status('Starting camera…');
     stream?.getTracks().forEach((t) => t.stop());
-    // camera permission and tracking models at the same time
-    const models = ensureModels();
+    // camera permission and face tracking at the same time; body / hands follow in the background
+    const models = ensureEssential();
     stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: state.facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } } });
     video.srcObject = stream; await video.play();
-    await models;
+    const { face } = await models;
     mark('cameraReady');
+    perf.hold(5000);
+    if (!face.ok) toast('Face tracking could not start. ⚙︎ → Speed → Retry, or reload.', 6000);
     running = true; $('#btn-cam').classList.add('on'); $('#btn-cam').textContent = 'Stop'; syncUI();
     if (!state.baseline) { driver.reset(); setTimeout(() => running && !state.baseline && startCalibration(), 900); }
     status('');
   } catch (e) { console.error(e); status(''); toast('Camera: ' + e.message); }
 }
 function stopCamera() { running = false; stream?.getTracks().forEach((t) => t.stop()); stream = null; $('#btn-cam').classList.remove('on'); $('#btn-cam').textContent = 'Start'; syncUI(); }
+/** make sure the trackers for the current mode exist (waits for all of them: used by tests and retry) */
 async function ensureModels() {
-  await tracker.init({ needPose: state.mode !== 'face', needHands: state.mode !== 'face' && state.body.hands, poseModel: state.poseModel, delegate: state.delegate, onStatus: status });
+  // quiet: progress shows in the tracker chip, not over the avatar
+  return tracker.init({ needPose: state.mode !== 'face', needHands: state.mode !== 'face' && state.body.hands, poseModel: state.poseModel, delegate: state.delegate });
+}
+/** essential first: resolves once FACE tracking is ready; body / hands keep starting in the background
+ *  (the chip shows them) and join the moment they are ready */
+async function ensureEssential() {
+  const face = await tracker.init({ needPose: false, needHands: false, delegate: state.delegate, onStatus: status });
+  const rest = state.mode !== 'face' ? ensureModels().then((r) => {
+    if (r.failed.length) toast(`${r.failed.map((k) => TNAME[k]).join(' and ')} tracking could not start; the rest works. ⚙︎ → Speed → Retry.`, 6000);
+    perf.hold(3000);
+  }) : Promise.resolve();
+  return { face, rest };
 }
 
 let lastT = performance.now();
@@ -191,7 +252,16 @@ function processFrame(src, nowMs, dt) {
   const w = src.videoWidth || src.width, h = src.height && !src.videoHeight ? src.height : src.videoHeight;
   const size = { width: w, height: h };
   const body = state.mode !== 'face';
-  const res = tracker.detect(src, nowMs, { pose: body, hands: body && state.body.hands });
+  // when the device struggles, body and hand detection take turns (face runs every frame); a skipped
+  // detector's last result is reused for a short while so nothing looks "lost"
+  frameNo++;
+  const st = detectStride, poseDue = body && (st === 1 || frameNo % st === 0), handsDue = body && state.body.hands && (st === 1 || frameNo % st === 1 % st);
+  const t0 = performance.now();
+  const res = tracker.detect(src, nowMs, { pose: poseDue, hands: handsDue });
+  const tNow = performance.now();
+  if (poseDue) recent.pose = { r: res.pose, t: tNow }; else if (body && recent.pose && tNow - recent.pose.t < 250) res.pose = recent.pose.r;
+  if (handsDue) recent.hands = { r: res.hands, t: tNow }; else if (body && state.body.hands && recent.hands && tNow - recent.hands.t < 250) res.hands = recent.hands.r;
+  perf.tracked(tNow, tNow - t0);
   lastRes = res;
   const now = nowMs / 1000;
   // face ----------------------------------------------------------------
@@ -219,7 +289,8 @@ function processFrame(src, nowMs, dt) {
   if (TEST) window.__last = { pose, hands, face: lastFace, applied: { ...(avatar.applied || {}) }, res: { face: !!fl, pose: !!pose, hands: hands && { L: !!hands.Left, R: !!hands.Right } } };
   return res;
 }
-let lastFace = null, lastRes = null;
+let lastFace = null, lastRes = null, frameNo = 0, detectStride = 1;
+const recent = { pose: null, hands: null };
 // ---------------------------------------------------------------- camera preview + tracker overlay
 const feed = $('#feed'), feedfx = $('#feedfx');
 function drawPreview(res) {
@@ -258,7 +329,10 @@ function tvStep(dt) {
 function loop() {
   requestAnimationFrame(loop);
   if (window.app && window.app.manual) return;     // automated tests drive frames themselves
+  if (contextLost) return;
   const t = performance.now(), dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  perf.frame(t);
+  if (t - lastHousekeeping > 1000) { lastHousekeeping = t; housekeeping(t); }
   if (running && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
     try { processFrame(video, t, dt); drawPreview(lastRes); stats.tn++; } catch (e) { console.error(e); }
@@ -270,13 +344,61 @@ function loop() {
   tvStep(dt);
   frameCamera(dt);
   if (look) look.render(camera); else renderer.render(scene, camera);
-  if (avatar.vrm) mark('firstFrame');
+  if (avatar.vrm) { mark('firstFrame'); bootDone(); }
   stats.n++;
   if (t - stats.t0 > 1000) {
     stats.fps = stats.n * 1000 / (t - stats.t0); stats.tFps = stats.tn * 1000 / (t - stats.t0); stats.n = stats.tn = 0; stats.t0 = t;
     $('#hud').textContent = running ? `${stats.fps.toFixed(0)} fps · tracking ${stats.tFps.toFixed(0)}/s · ${stats.face ? 'face ✓' : 'face –'}${state.mode !== 'face' ? (stats.pose ? ' · body ✓' : ' · body –') : ''}` : '';
   }
 }
+
+// ---------------------------------------------------------------- performance
+const perf = new PerfManager();
+let lastHousekeeping = 0, contextLost = false;
+/** apply the performance plan: quality = the user's choice, capped while the device struggles */
+function applyPerf() {
+  if (!look) return;
+  const plan = perf.plan(state.perf.auto, { tracking: running, quality: state.look });
+  if (look.mode !== plan.quality) look.set(plan.quality);
+  if (look.pixelCap !== plan.pixelCap) { look.pixelCap = plan.pixelCap; look.applyPixelRatio(); resize(); }
+  detectStride = plan.stride;
+  perfPlan = plan;
+}
+let perfPlan = { state: 'healthy', quality: state.look, pixelCap: null, stride: 1 };
+function housekeeping(t) {
+  if (perf.update(t, { tracking: running })) {
+    applyPerf();
+    if (perf.state !== 'healthy' && state.perf.auto) toast(perf.state === 'critical' ? 'Your device is struggling: lowered the quality to keep tracking smooth' : 'Lowered the quality a little to keep things smooth', 3500);
+    if (perf.state === 'critical') releaseUnused(0);
+  }
+  // optional trackers not used for 3 minutes give their memory back (their models stay downloaded)
+  releaseUnused(180000);
+  // shaders of the other quality modes are compiled while nothing else is going on
+  if (!prepQueue.length || !avatar.vrm || !look || perf.state !== 'healthy') return;
+  // not while the trackers are being set up (both need the GPU; tracking comes first)
+  if (!timings.trackerWarm && !(timings.firstFrame && t - timings.firstFrame > 8000)) return;
+  if (Object.values(tracker.status).some((st) => st.state === 'starting')) return;
+  if (running && perf.fps < 45) return;
+  const m = prepQueue.shift();
+  const ts = performance.now();
+  if (look.prepare(camera, m)) { timings['prepare_' + m] = Math.round(performance.now() - ts); perf.hold(1500); }
+}
+let prepQueue = [];
+function releaseUnused(idleMs) {
+  const needPose = running && state.mode !== 'face', needHands = needPose && state.body.hands;
+  for (const k of ['pose', 'hand']) {
+    if ((k === 'pose' ? needPose : needHands) || !tracker[k]) continue;
+    if (performance.now() - tracker.status[k].lastUsed > idleMs) tracker.release(k);
+  }
+}
+// the GPU can drop the graphics context (memory pressure, backgrounding on iOS): pause, then rebuild
+canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); contextLost = true; status('Graphics restarting…'); });
+canvas.addEventListener('webglcontextrestored', () => {
+  contextLost = false; status('');
+  if (look) { look.resetPrepared?.(); look.set(look.mode); prepQueue = ['low', 'medium', 'high'].filter((m) => m !== look.mode); }
+  perf.hold(5000);
+  toast('Graphics restored');
+});
 
 // ---------------------------------------------------------------- calibration
 function startCalibration() {
@@ -372,14 +494,40 @@ function syncUI() {
   if (rig) Object.assign(rig.opts, state.body);
   avatar.voiceStrength = state.voiceStrength;
   settingsUI?.refresh();
+  refreshTrackerUI();
 }
 async function setMode(m) {
-  state.mode = m; persist(); syncUI();
+  state.mode = m; persist(); syncUI(); perf.hold(4000);
   if (state.mode === 'full') toast('Full body: put the phone ~2.5–3 m away so your whole body (head to feet) is in view.', 5000);
-  if (running) { status('Loading models…'); await ensureModels(); status(''); }
+  if (running) ensureModels().then((r) => { if (r.failed.length) toast(`${r.failed.map((k) => TNAME[k]).join(' and ')} tracking could not start. ⚙︎ → Speed → Retry.`, 6000); });
   else tracker.prefetch({ needPose: m !== 'face', needHands: m !== 'face' && state.body.hands, poseModel: state.poseModel });
 }
 document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+// ---------------------------------------------------------------- diagnostics (only real measurements)
+let gpuName = null;
+function diagnosticsHTML() {
+  if (gpuName === null) { try { const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info'); gpuName = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); } catch { gpuName = ''; } }
+  const ST = { healthy: ['Healthy', 'ok'], struggling: ['Struggling: lowered a little', 'warn'], critical: ['Critical: lowered a lot', 'bad'] };
+  const [sl, sc] = ST[state.perf.auto ? perf.state : 'healthy'];
+  const q = (m) => m[0].toUpperCase() + m.slice(1);
+  const ms = (k) => (tracker[k] ? Math.round(tracker.inferMs[k]) + ' ms' : '–');
+  const row = (k, v, c = '') => `<tr><td class="k">${k}</td><td class="${c}">${v}</td></tr>`;
+  const tr = ['face', 'pose', 'hand'].map((k) => { const st = tracker.status[k], [t, c] = trackerText(k); return row(TNAME[k] + ' tracking', t + (st.state === 'ready' && st.ms != null ? ` (${(st.ms / 1000).toFixed(1)} s)` : '') + (st.state === 'failed' && st.error ? `<br><small>${st.error.slice(0, 80)}</small>` : ''), c === 'ready' ? 'ok' : c === 'failed' ? 'bad' : ''); }).join('');
+  const info = renderer.info;
+  return `<table>
+    ${row('State', state.perf.auto ? sl : 'Automatic off', state.perf.auto ? sc : '')}
+    ${row('Drawing', Math.round(perf.fps) + ' fps')}
+    ${row('Tracking', running ? `${Math.round(perf.trackFps)}/s · ${Math.round(perf.trackMs)} ms per frame` : 'camera off')}
+    ${running ? row('Per tracker', `face ${ms('face')} · body ${state.mode !== 'face' ? ms('pose') : '–'} · hands ${state.mode !== 'face' && state.body.hands ? ms('hand') : '–'}`) : ''}
+    ${row('Quality in use', q(look ? look.mode : state.look) + (look && look.mode !== state.look ? ` (you chose ${q(state.look)})` : '') + ` · ${renderer.getPixelRatio().toFixed(2)}× resolution`)}
+    ${detectStride > 1 && running && state.mode !== 'face' ? row('Body / hands', `every ${detectStride} frames (taking turns)`, 'warn') : ''}
+    ${tr}
+    ${row('Avatar ready after', timings.firstFrame ? (timings.firstFrame / 1000).toFixed(1) + ' s' : '…')}
+    ${row('Graphics', `${info.programs?.length ?? 0} shaders · ${info.memory.textures} textures · ${info.memory.geometries} meshes`)}
+    ${gpuName ? row('GPU', gpuName.slice(0, 60)) : ''}
+  </table>`;
+}
 
 // ---------------------------------------------------------------- settings panel
 const T = state.tuning, pct = (v) => Math.round(v * 100) + '%', x = (v) => '×' + v.toFixed(2);
@@ -387,7 +535,7 @@ const set = (fn) => (v) => { fn(v); persist(); syncUI(); };
 const TABS = [
   { id: 'face', icon: '🙂', label: 'Face' }, { id: 'body', icon: '🙌', label: 'Body' }, { id: 'cam', icon: '📷', label: 'Camera' },
   { id: 'screen', icon: '📺', label: 'Screen' }, { id: 'sound', icon: '🎙️', label: 'Sound' }, { id: 'look', icon: '🎨', label: 'Look' },
-  { id: 'more', icon: '⋯', label: 'More' },
+  { id: 'speed', icon: '⚡', label: 'Speed' }, { id: 'more', icon: '⋯', label: 'More' },
 ];
 const ITEMS = [
   // face
@@ -405,12 +553,12 @@ const ITEMS = [
   { tab: 'face', card: 'Options', type: 'switch', id: 'o-poses', label: 'Expression buttons', desc: 'Rage, Shock, Stare, Smug, Joy, Worry above the bar. Tap or hold; keys 1–6.', get: () => state.poseButtons, set: set((v) => (state.poseButtons = v)) },
   // body
   { tab: 'body', card: 'Tracking', type: 'seg', id: 'o-mode', label: 'Track', options: [['face', 'Face'], ['upper', 'Upper body'], ['full', 'Full body']], get: () => state.mode, set: (v) => setMode(v) },
-  { tab: 'body', card: 'Tracking', type: 'switch', id: 'o-hands', label: 'Hands & fingers', desc: 'Thumbs up, peace, pointing… Turn off to save battery.', get: () => state.body.hands, set: async (v) => { state.body.hands = v; persist(); syncUI(); if (running && v) { status('Loading hand model…'); await ensureModels(); status(''); } } },
+  { tab: 'body', card: 'Tracking', type: 'switch', id: 'o-hands', label: 'Hands & fingers', desc: 'Thumbs up, peace, pointing… Turn off to save battery.', get: () => state.body.hands, set: async (v) => { state.body.hands = v; persist(); syncUI(); if (running && v) ensureModels(); } },
   { tab: 'body', card: 'Arms', type: 'seg', id: 'o-solver', label: 'Arm solver', options: [['aim', '3D (new)'], ['classic', 'Classic']], get: () => state.body.solver, set: set((v) => (state.body.solver = v)) },
   { tab: 'body', card: 'Arms', type: 'note', desc: '3D aims every bone along your real arm in 3D: crossed arms, pointing at the camera and gestures come out right.', show: () => state.body.solver === 'aim' },
   { tab: 'body', card: 'Arms', type: 'switch', id: 'o-lift', label: 'Depth from arm length', desc: 'Works out how far your arm reaches toward the camera from how short it looks.', get: () => state.body.lift, set: set((v) => (state.body.lift = v)), show: () => state.body.solver === 'aim' },
   { tab: 'body', card: 'Arms', type: 'slider', id: 't-follow', label: 'Smooth ↔ snappy', min: 0, max: 1, step: 0.05, fmt: pct, reset: 0.75, get: () => state.body.follow, set: set((v) => (state.body.follow = v)), show: () => state.body.solver === 'aim' },
-  { tab: 'body', card: 'Body model', type: 'seg', id: 'o-pose', label: 'Body model', desc: 'Full is more accurate, Lite is faster.', options: [['lite', 'Lite'], ['full', 'Full']], get: () => state.poseModel, set: async (v) => { state.poseModel = v; persist(); if (running) await ensureModels(); } },
+  { tab: 'body', card: 'Body model', type: 'seg', id: 'o-pose', label: 'Body model', desc: 'Full is more accurate, Lite is faster.', options: [['lite', 'Lite'], ['full', 'Full']], get: () => state.poseModel, set: (v) => { state.poseModel = v; persist(); if (running) ensureModels(); } },
   // camera
   { tab: 'cam', card: 'Camera', type: 'seg', id: 'o-facing', label: 'Camera', options: [['user', 'Front'], ['environment', 'Back']], get: () => state.facing, set: async (v) => { state.facing = v; persist(); syncUI(); if (running) await startCamera(); } },
   { tab: 'cam', card: 'Preview', type: 'seg', id: 'o-preview', label: 'Show', options: [['off', 'Off'], ['camera', 'Camera'], ['overlay', 'Camera + tracking'], ['tracking', 'Tracking']], get: () => state.preview.mode, set: set((v) => (state.preview.mode = v)) },
@@ -430,10 +578,19 @@ const ITEMS = [
   { tab: 'sound', card: 'Microphone', type: 'slider', id: 't-voice', label: 'Mouth follows voice', min: 0, max: 1.5, fmt: pct, reset: 1, get: () => state.voiceStrength, set: set((v) => (state.voiceStrength = v)) },
   { tab: 'sound', card: 'Microphone', type: 'switch', id: 'o-tvvoice', label: 'TV speaker voice', desc: 'Recordings sound like they come out of an old TV.', get: () => state.tvVoice, set: set((v) => { state.tvVoice = v; voice.setTvVoice(v); }) },
   // look
-  { tab: 'look', card: 'Quality', type: 'seg', id: 'o-look', label: 'Quality', desc: 'Low: flat, fastest · Medium: lit · High: rendered look.', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], get: () => state.look, set: (v) => { state.look = v; persist(); look?.set(v); resize(); } },
+  { tab: 'look', card: 'Quality', type: 'seg', id: 'o-look', label: 'Quality', desc: 'Low: flat, fastest · Medium: lit · High: rendered look.', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], get: () => state.look, set: (v) => { state.look = v; persist(); perf.hold(3000); applyPerf(); resize(); } },
   { tab: 'look', card: 'Background', type: 'swatch', id: 'o-bg', label: 'Background', options: [['#2b2140', 'PuzzleVision purple'], ['#0d0912', 'Studio dark'], ['#111111', 'Black'], ['#f2f0f5', 'White'], ['#00b140', 'Green screen'], ['#0047bb', 'Blue screen'], ['transparent', 'Transparent (OBS browser source)']], get: () => state.bg, set: set((v) => (state.bg = v)) },
   { tab: 'look', card: 'Streaming', type: 'buttons', label: 'Clean view', desc: 'Hide all buttons. Double-tap or press H to bring them back.', buttons: [['Hide buttons', () => { $('#settings').hidden = true; setClean(true); }, '', 'o-clean']] },
   { tab: 'look', card: 'Streaming', type: 'note', desc: 'OBS: pick Green screen and add a Window Capture of this browser with a Chroma Key filter. Or pick Transparent and add this page as a Browser Source (start OBS with --enable-media-stream so it may use the camera).' },
+  // speed
+  { tab: 'speed', card: 'Performance', type: 'switch', id: 'o-autoperf', label: 'Automatic performance', desc: 'If your device keeps struggling, lower the resolution and quality for a while and let body / hand tracking take turns. Face tracking is never reduced. Your own quality choice comes back when things are smooth again.', get: () => state.perf.auto, set: set((v) => { state.perf.auto = v; applyPerf(); }) },
+  { tab: 'speed', card: 'Right now', type: 'live', html: diagnosticsHTML },
+  { tab: 'speed', card: 'Recovery', type: 'buttons', label: 'If something is stuck', desc: 'Retry trackers that failed to start, free the memory of body / hand tracking you are not using, or reload.', buttons: [
+    ['Retry trackers', async () => { status('Retrying…'); const r = await tracker.init({ needPose: state.mode !== 'face', needHands: state.mode !== 'face' && state.body.hands, poseModel: state.poseModel, delegate: state.delegate, onStatus: status, retryFailed: true }); status(''); toast(r.failed.length ? 'Still failing: ' + r.failed.map((k) => TNAME[k]).join(', ') : 'All trackers ready'); }, '', 'o-retry'],
+    ['Free memory', () => { releaseUnused(0); toast('Released the trackers not in use'); }, '', 'o-free'],
+    ['Reload app', () => location.reload(), '', 'o-reload']] },
+  { tab: 'speed', card: 'Downloads', type: 'buttons', label: 'Downloaded tracking models', desc: 'Kept on this device so Start is quick. Clearing frees storage; they download again when needed.', buttons: [
+    ['Clear downloads', async () => { try { await caches.delete(MODEL_CACHE); toast('Cleared. They download again when needed.'); } catch { toast('Could not clear'); } }, 'danger', 'o-clearcache']] },
   // more
   { tab: 'more', card: 'Avatar', type: 'buttons', label: 'Model', desc: 'Mr. Puzzles is built in. You can load another VRM avatar.', buttons: [['Use my own .vrm…', () => $('#file').click(), '', 'btn-load'], ['Built-in Mr. Puzzles', async () => { await clearModel(); location.reload(); }, '', 'btn-builtin']] },
   { tab: 'more', card: 'Reset', type: 'buttons', label: 'Start over', desc: 'Forget the calibration, or put every setting back to default.', buttons: [
@@ -442,6 +599,7 @@ const ITEMS = [
   { tab: 'more', card: 'About', type: 'note', desc: 'PuzzleVision Cam. Model & rig: “Zamination Style Mr Puzzles” fan model by BonBon (bonbon099.gumroad.com). Mr. Puzzles © SMG4. Unofficial, non-commercial fan project. Tracking: MediaPipe. Rendering: three.js + three-vrm.' },
 ];
 const settingsUI = buildSettings($('#settings'), TABS, ITEMS);
+setInterval(() => { if (!$('#settings').hidden) settingsUI.refresh(); }, 1000);
 settingsUI.close.addEventListener('click', () => ($('#settings').hidden = true));
 $('#btn-cam').addEventListener('click', () => (running ? stopCamera() : startCamera()));
 $('#btn-rec').addEventListener('click', toggleRecord);
@@ -480,11 +638,11 @@ syncUI(); resize(); bootModel(); loop();
 
 // test / automation hooks --------------------------------------------------------------
 window.app = {
-  state, avatar, tracker, driver, ensureModels, useModel, processFrame, frameCamera,
+  state, avatar, tracker, driver, ensureModels, useModel, processFrame, frameCamera, renderer, scene,
   get rig() { return rig; },
   get look() { return look; },
-  render(dt = 1 / 30) { avatar.update(dt); tvStep(dt); frameCamera(dt, true); if (look) look.render(camera); else renderer.render(scene, camera); },
-  setMode(m) { state.mode = m; syncUI(); }, settingsUI, drawPreview, timings, warmUp: () => { warmed = false; warmUp(); },
+  render(dt = 1 / 30) { avatar.update(dt); tvStep(dt); frameCamera(dt, true); if (look) look.render(camera); else renderer.render(scene, camera); bootDone(); },
+  setMode(m) { state.mode = m; syncUI(); }, settingsUI, drawPreview, timings, perf, applyPerf, get perfPlan() { return perfPlan; }, prepare: () => { while (prepQueue.length) { const m = prepQueue.shift(); const t = performance.now(); look.prepare(camera, m); timings['prepare_' + m] = Math.round(performance.now() - t); } }, warmUp: () => { warmed = false; warmUp(); },
   tv, get lostFor() { return lostFor; }, takePhoto, setClean, poser, voice, drawTracking, get camera() { return camera; },
   /** test: render the hand of the avatar side s up close */
   renderHand(s) { const h = avatar.vrm.humanoid.getBoneNode(s + 'Hand').getWorldPosition(new THREE.Vector3()); const m = avatar.vrm.humanoid.getBoneNode(s + 'MiddleProximal').getWorldPosition(new THREE.Vector3()); const c = h.clone().lerp(m, 0.6); camera.position.set(c.x, c.y + 0.05, c.z + 0.55); camera.lookAt(c); if (look) look.render(camera); else renderer.render(scene, camera); },

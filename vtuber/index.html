@@ -51,6 +51,7 @@
   #feed canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
   #feed.tracking video { opacity:0; }
   #feed.mirror video, #feed.mirror canvas { transform:scaleX(-1); }
+  #feed:not(.large) #feedtag { display:none; }
   #feedtag { position:absolute; left:6px; bottom:5px; font-size:10px; color:#fff; background:rgba(0,0,0,.45); padding:1px 6px; border-radius:8px; pointer-events:none; }
   /* settings: bottom sheet on phones, side panel on wide screens */
   #settings { position:fixed; left:0; right:0; bottom:0; height:min(68dvh, 640px); display:flex; flex-direction:column; background:rgba(22,16,33,.94); border-top:1px solid var(--line); border-radius:20px 20px 0 0; box-shadow:0 -12px 40px rgba(0,0,0,.45); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); z-index:20; padding-bottom:env(safe-area-inset-bottom); }
@@ -105,11 +106,36 @@
   .set-btns button.danger { color:#ff9aa8; }
   .set-buttons { flex-wrap:wrap; }
   .set-note .set-desc { font-size:12.5px; }
+  .set-live { width:100%; font-size:13px; line-height:1.55; font-variant-numeric:tabular-nums; }
+  .set-row.set-live { flex-direction:column; align-items:stretch; }
+  .set-live .k { color:var(--muted); } .set-live .ok { color:var(--accent2); } .set-live .bad { color:#ff8fa3; } .set-live .warn { color:#ffd166; }
+  .set-live table { width:100%; border-collapse:collapse; } .set-live td { padding:2px 0; vertical-align:top; } .set-live td:last-child { text-align:right; }
   .set-row.stack { flex-direction:column; align-items:stretch; gap:8px; }
   .set-row.stack .segctl { width:100%; }
   .set-row.stack .segctl button { flex:1; padding:6px 4px; }
   .set-row.stack .set-btns { justify-content:flex-start; }
   .set-row.stack .set-btns button { flex:1 1 auto; }
+
+  /* startup: an old TV warming up (static CSS; only the rows change, on real events) */
+  #boot { position:fixed; inset:0; z-index:50; display:grid; place-items:center; background:radial-gradient(ellipse at 50% 40%, #2b2140 0%, #120c1c 70%); transition:opacity .45s ease; }
+  #boot.gone { opacity:0; pointer-events:none; }
+  #boot .box { width:min(340px, 86vw); text-align:center; }
+  #boot .tube { position:relative; aspect-ratio:4/3; border-radius:22% / 18%; background:#1b1426; border:10px solid #b9aed0; box-shadow:0 0 0 3px #6d5f8a, 0 18px 50px rgba(0,0,0,.55), inset 0 0 40px rgba(0,0,0,.8); overflow:hidden; display:grid; place-items:center; }
+  #boot .tube::before { content:''; position:absolute; inset:0; background:repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 3px); pointer-events:none; }
+  #boot .tube::after { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at 50% 45%, rgba(200,230,255,.18), transparent 60%); animation:bootglow 2.4s ease-in-out infinite alternate; pointer-events:none; }
+  @keyframes bootglow { from { opacity:.45; } to { opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { #boot .tube::after { animation:none; } }
+  #boot .brand { font:700 26px/1.1 Georgia, 'Times New Roman', serif; letter-spacing:.02em; color:#efeaf8; text-shadow:0 0 12px rgba(180,220,255,.5); }
+  #boot .sub { margin-top:6px; font-size:13px; color:#b3a6c9; }
+  #boot ul { list-style:none; margin:18px 0 0; padding:0; text-align:left; font-size:14px; }
+  #boot li { display:flex; justify-content:space-between; gap:12px; padding:7px 4px; border-bottom:1px solid rgba(255,255,255,.08); }
+  #boot li b { font-weight:500; }
+  #boot li span { color:#b3a6c9; font-variant-numeric:tabular-nums; }
+  #boot li.ready span { color:#46c9c4; } #boot li.failed span { color:#ff8fa3; } #boot li.later span { color:#7d7095; }
+  #boot .note { margin-top:12px; font-size:12px; color:#7d7095; min-height:1.2em; }
+  #chip { position:fixed; top:calc(env(safe-area-inset-top) + 30px); right:12px; font-size:12px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:4px 10px; color:var(--muted); transition:opacity .4s; }
+  #chip.done { opacity:0; }
+  html.clean #chip { display:none; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -122,6 +148,32 @@
 </script>
 </head>
 <body>
+<div id="boot">
+  <div class="box">
+    <div class="tube"><div><div class="brand">PuzzleVision</div><div class="sub" id="bootsub">warming up the tubes…</div></div></div>
+    <ul>
+      <li data-k="avatar"><b>3D avatar</b><span>starting…</span></li>
+      <li data-k="face"><b>Face tracking</b><span>waiting</span></li>
+      <li data-k="pose"><b>Body tracking</b><span>waiting</span></li>
+      <li data-k="hand"><b>Hand tracking</b><span>waiting</span></li>
+    </ul>
+    <div class="note" id="bootnote">You can start as soon as the avatar is ready; tracking keeps loading in the background.</div>
+  </div>
+</div>
+<div id="chip" class="done" hidden></div>
+<script>
+  // safety net: the startup screen must never trap anyone (script error, very slow network)
+  (function () {
+    var boot = document.getElementById('boot'), note = document.getElementById('bootnote');
+    function offer(msg, label, act) {
+      if (!boot || !boot.isConnected) return;
+      note.innerHTML = msg + ' <button id="bootbtn" style="min-height:32px;padding:4px 10px;margin-left:6px">' + label + '</button>';
+      document.getElementById('bootbtn').onclick = act;
+    }
+    window.addEventListener('error', function (e) { offer('Something went wrong (' + String(e.message || 'error').slice(0, 80) + ').', 'Reload', function () { location.reload(); }); });
+    setTimeout(function () { offer('This is taking long (slow connection?).', 'Continue anyway', function () { boot.remove(); }); }, 25000);
+  })();
+</script>
 <canvas id="stage"></canvas>
 <div id="flash"></div>
 <div id="feed"><video id="video" playsinline muted autoplay></video><canvas id="feedfx"></canvas><span id="feedtag"></span></div>
@@ -152,6 +204,6 @@
     <button id="btn-set">⚙︎</button>
   </div>
 </div>
-<script type="module" src="js/main.js?v=20261114.2020-4522d59"></script>
+<script type="module" src="js/main.js?v=20261114.2057-63f8810"></script>
 </body>
 </html>

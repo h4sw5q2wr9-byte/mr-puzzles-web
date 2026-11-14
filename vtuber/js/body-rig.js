@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
 import { VRMSchema } from '@pixiv/three-vrm';
-import { Retarget } from './retarget.js?v=20261114.2020-4522d59';
+import { Retarget } from './retarget.js?v=20261114.2057-63f8810';
 
 const R = Kalidokit.Utils.RestingDefault.Pose;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));

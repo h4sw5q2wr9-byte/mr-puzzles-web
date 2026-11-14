@@ -77,6 +77,7 @@ export function installLook(THREE, { renderer, scene, vrm }) {
   // reflections from a neutral studio environment (kept dim: the renders are moody)
   const pmrem = new THREE.PMREMGenerator(renderer);
   const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();          // its working buffers are only needed to make the map
 
   // ---- materials ------------------------------------------------------------------------------
   const fabric = fabricTexture(THREE);
@@ -102,43 +103,75 @@ export function installLook(THREE, { renderer, scene, vrm }) {
     o.castShadow = true; o.receiveShadow = true;
   });
 
+  // the scene / renderer state of a quality mode (lights, materials, tone mapping, which lights cast
+  // shadows): everything that decides which shader programs are needed
+  function apply(mode) {
+    const lit = mode !== 'low', high = mode === 'high';
+    for (const s of swaps) {
+      s.mesh.material = lit ? s.studioMat : s.toonMat;
+      if (s.studioMat.userData.fabric && 'sheen' in s.studioMat) s.studioMat.sheen = high ? 1 : 0;   // fuzzy gloves / sleeves
+    }
+    toon.visible = !lit; studio.visible = lit; floor.visible = lit && api.floorAllowed;
+    renderer.shadowMap.enabled = lit; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = lit ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.physicallyCorrectLights = false;
+    const rimL = studio.children[2];
+    rimL.castShadow = high;          // high: the left violet rim light casts shadows too (deeper contrast)
+    glow.intensity = high ? 1.6 : 0;
+    rimL.intensity = high ? 18 : 14; studio.children[4].intensity = high ? 10 : 8;
+  }
+  const compiled = new Set();
   const api = {
     mode: 'medium',
     floorAllowed: true,
     /** the contact shadow is hidden on green / blue / transparent backgrounds (it would break the key) */
     setFloor(v) { api.floorAllowed = v; floor.visible = api.mode !== 'low' && v; },
+    /** pixel-ratio cap from the performance manager (null = the quality mode's own) */
+    pixelCap: null,
     set(mode) {
       mode = mode === 'studio' ? 'medium' : mode === 'toon' ? 'low' : mode;
       api.mode = mode;
-      const lit = mode !== 'low', high = mode === 'high';
-      for (const s of swaps) {
-        s.mesh.material = lit ? s.studioMat : s.toonMat;
-        // fuzzy fabric (gloves, sleeves) in high quality
-        if (s.studioMat.userData.fabric && 'sheen' in s.studioMat) { s.studioMat.sheen = high ? 1 : 0; }
-      }
-      toon.visible = !lit; studio.visible = lit; floor.visible = lit && api.floorAllowed;
-      renderer.shadowMap.enabled = lit; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      const key = studio.children[0];
+      apply(mode);
+      const high = mode === 'high', key = studio.children[0], rimL = studio.children[2];
       const ms = high ? 2048 : 1024;
       if (key.shadow.mapSize.x !== ms) { key.shadow.mapSize.set(ms, ms); key.shadow.map?.dispose(); key.shadow.map = null; }
-      renderer.toneMapping = lit ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
-      renderer.toneMappingExposure = 1.0;
-      renderer.physicallyCorrectLights = false;
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, high ? 3 : mode === 'medium' ? 2 : 1.5));
-      // high: the left violet rim light casts shadows too (deeper contrast, like the renders)
-      const rimL = studio.children[2];
-      rimL.castShadow = high; rimL.shadow.mapSize.set(1024, 1024); rimL.shadow.bias = -0.0005; rimL.shadow.normalBias = 0.02;
+      rimL.shadow.mapSize.set(1024, 1024); rimL.shadow.bias = -0.0005; rimL.shadow.normalBias = 0.02;
       key.shadow.radius = high ? 3 : 4;
-      glow.intensity = high ? 1.6 : 0;
-      rimL.intensity = high ? 18 : 14; studio.children[4].intensity = high ? 10 : 8;
-      // materials must recompile after tone-mapping / shadow changes
+      api.applyPixelRatio();
+      // materials pick up tone-mapping / shadow changes (the compiled programs are cached, so after the
+      // first time - or after prepare() - this costs a few milliseconds)
       vrm.scene.traverse((o) => { if (o.isMesh) [].concat(o.material).forEach((m) => (m.needsUpdate = true)); });
+      compiled.add(mode);
     },
+    applyPixelRatio() {
+      const mode = api.mode, own = mode === 'high' ? 3 : mode === 'medium' ? 2 : 1.5;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, api.pixelCap ? Math.min(own, api.pixelCap) : own));
+    },
+    /** compile another mode's shaders in the background (nothing visible changes), one mode per call;
+     *  returns true if it did work. Makes the first switch to that mode instant. */
+    prepare(camera, mode) {
+      if (compiled.has(mode) || mode === api.mode) return false;
+      const cur = api.mode;
+      apply(mode); renderer.compile(scene, camera);
+      apply(cur);
+      compiled.add(mode);
+      return true;
+    },
+    isPrepared: (mode) => compiled.has(mode),
+    resetPrepared() { compiled.clear(); compiled.add(api.mode); },
     /** draw one frame */
     render(camera) { camera.layers.enable(FACE_LAYER); renderer.render(scene, camera); },
     /** keep the contact shadow under the feet */
     update() { floor.position.y = 0.002; },
-    dispose() { scene.remove(toon, studio, floor); glow.parent?.remove(glow); },
+    /** remove the rig and free everything this look created (the avatar's own materials stay) */
+    dispose() {
+      scene.remove(toon, studio, floor); glow.parent?.remove(glow);
+      for (const s of swaps) { s.mesh.material = s.toonMat; s.studioMat.dispose(); }
+      fabric.dispose(); env.dispose();
+      floor.geometry.dispose(); floor.material.dispose();
+      for (const l of [...studio.children, ...toon.children]) l.shadow?.map?.dispose();
+    },
   };
   return api;
 }
