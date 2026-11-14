@@ -69,8 +69,13 @@ eyes, brows, rainbow mouth and screen effects.
   * Green screen or transparent background (for an OBS Browser Source).
   * Clean view hides the buttons; double-tap or press H to bring them back. `?clean` starts in
     clean view.
-* **Body tracking:** steadier arms with adaptive smoothing. Glitch rejection uses landmark
-  visibility, and hands fade in and out instead of snapping.
+* **Body and hand tracking:** a 3D solver aims every bone along your real limbs, with depth taken
+  from arm length. It handles thumbs up, peace, pointing at the camera and crossed arms. The
+  classic solver is still in ⚙︎ → Body.
+* **Tracker view:** the camera preview can show what the tracker sees (face, body skeleton, hands).
+* **Settings:** tabs with switches and live sliders; a bottom sheet on phones, a side panel on
+  desktop.
+* **Faster loading:** tracking models are kept on the device and prepared in the background.
 * **Quality:** low (flat toon), medium (lit) and high (rendered look).
 * **Settings** (⚙︎, remembered on the device):
   * tracking style (ZAMination, Balanced, Accurate) and exaggeration sliders

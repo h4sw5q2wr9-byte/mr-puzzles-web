@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
 import { VRMSchema } from '@pixiv/three-vrm';
+import { Retarget } from './retarget.js?v=20261114.2020-4522d59';
 
 const R = Kalidokit.Utils.RestingDefault.Pose;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -50,6 +51,9 @@ export class BodyRig {
     this.filt = {};                      // per bone: smoothed angular speed
     this.handW = { Left: 0, Right: 0 };   // how much the hand tracker drives each wrist / fingers
     this.armHidden = { Left: 0, Right: 0 };   // seconds an arm has been (mostly) invisible
+    // 3D retargeting of arms / torso / hands (captures the rest pose now, before anything moves)
+    this.rt = new Retarget(vrm);
+    this.opts = { solver: 'aim', depth: 0.9, follow: 0.75, lift: true };
   }
   worldY(n) { const b = this.bone(n); b.updateWorldMatrix(true, false); return b.getWorldPosition(_v).y; }
 
@@ -93,8 +97,18 @@ export class BodyRig {
     if (!face) return;
     const h = face.head;
     const t = { x: clamp(h.x, -0.8, 0.8), y: clamp(h.y - hipsYaw, -0.9, 0.9), z: clamp(h.z, -0.6, 0.6) };
-    this.rot('Neck', t, 0.55, 0.35, dt);
-    this.rot('Head', t, 0.45, 0.35, dt);
+    // the face gives the head's turn relative to the CAMERA; the chest may already be turned (body
+    // tracking), so only the rest goes into neck + head (otherwise a turned torso doubles the head turn)
+    _e.set(t.x, t.y, t.z, 'XYZ'); const qF = new THREE.Quaternion().setFromEuler(_e);
+    const chest = this.bone('Chest') || this.bone('Spine'), rest = this.rt && this.rt.rest[chest === this.bone('Chest') ? 'Chest' : 'Spine'];
+    if (chest && rest) {
+      chest.updateWorldMatrix(true, false);
+      const qC = chest.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(rest.world);
+      qF.premultiply(qC);
+    }
+    const k = rate(0.35, dt);
+    this.bone('Neck')?.quaternion.slerp(new THREE.Quaternion().slerp(qF, 0.55), k);
+    this.bone('Head')?.quaternion.slerp(new THREE.Quaternion().slerp(qF, 0.45), k);
   }
 
   relaxHead(dt) { this.rot('Neck', { x: 0, y: 0, z: 0 }, 1, 0.05, dt); this.rot('Head', { x: 0, y: 0, z: 0 }, 1, 0.05, dt); }
@@ -125,8 +139,26 @@ export class BodyRig {
         hips.position.lerp(target, rate(0.12, dt));
       }
       this.track('Hips', { x: legs ? hp.rotation.x : 0, y: hp.rotation.y, z: hp.rotation.z }, 0.7, dt, PROF.torso);
-      this.track('Chest', pose.Spine, 0.25, dt, PROF.torso);
-      this.track('Spine', pose.Spine, 0.45, dt, PROF.torso);
+      const aim = this.opts.solver === 'aim' && pose.raw;
+      if (aim) {
+        // 3D aiming solver for the torso and both arms (retarget.js)
+        const lm = pose.raw.lm, vis = (i) => lm[i].visibility ?? 1;
+        const skip = {};
+        for (const s of ['Right', 'Left']) {
+          const ix = s === 'Right' ? [13, 15] : [14, 16];
+          const hidden = Math.max(vis(ix[0]), vis(ix[1])) < 0.3 && !(hands && hands[s]);
+          this.armHidden[s] = hidden ? this.armHidden[s] + dt : 0;
+          if (this.armHidden[s] > 0.6) {
+            skip[s] = true;    // out of view for a while: hang relaxed instead of guessing
+            this.rot(s + 'UpperArm', IDLE[s + 'UpperArm'], 1, 0.05, dt);
+            this.rot(s + 'LowerArm', IDLE[s + 'LowerArm'], 1, 0.05, dt);
+          }
+        }
+        this.rt.solveBody(pose.raw.wl, vis, { dt, depth: this.opts.depth, follow: this.opts.follow, lm, aspect: pose.raw.aspect || 4 / 3, lift: this.opts.lift !== false, handsSeen: { Left: !!(hands && hands.Left), Right: !!(hands && hands.Right) }, skip });
+      } else {
+        this.track('Chest', pose.Spine, 0.25, dt, PROF.torso);
+        this.track('Spine', pose.Spine, 0.45, dt, PROF.torso);
+      }
       for (const s of ['Right', 'Left']) {
         // trust from landmark visibility: the upper arm needs the elbow, the forearm the wrist too
         // (with the phone framing chest-up the elbows are often below the picture: if the hand tracker
@@ -134,8 +166,7 @@ export class BodyRig {
         const v = pose.vis ? pose.vis[s] : { elbow: 1, wrist: 1 };
         const seen = hands && hands[s] ? 0.65 : 0;
         const cU = Math.max(seen, smoothstep(0.3, 0.7, v.elbow)), cL = Math.max(seen, Math.min(cU, smoothstep(0.3, 0.7, v.wrist)));
-        this.armHidden[s] = cL < 0.25 ? this.armHidden[s] + dt : 0;
-        if (this.armHidden[s] > 0.6) {
+        if (aim) { /* arms done by the aiming solver */ } else if ((this.armHidden[s] = cL < 0.25 ? this.armHidden[s] + dt : 0) > 0.6) {
           // out of view for a while: let the arm hang relaxed instead of guessing
           this.rot(s + 'UpperArm', IDLE[s + 'UpperArm'], 1, 0.05, dt);
           this.rot(s + 'LowerArm', IDLE[s + 'LowerArm'], 1, 0.05, dt);
@@ -161,13 +192,17 @@ export class BodyRig {
       // the hand tracker's influence fades in quickly and out slowly (no snapping when it flickers)
       this.handW[s] += ((hs ? 1 : 0) - this.handW[s]) * Math.min(1, dt * (hs ? 10 : 3));
       const poseHandZ = pose ? pose[s + 'Hand'].z : 0;
-      if (hs) {
+      if (hs && hs.world && this.opts.solver === 'aim') {
+        this.rt.solveHand(s, hs.world, { dt, follow: this.opts.follow, weight: Math.max(0.15, this.handW[s]) });
+      } else if (hs) {
         const w = this.handW[s];
         this.track(s + 'Hand', { x: hs[s + 'Wrist'].x, y: hs[s + 'Wrist'].y, z: poseHandZ }, 1, dt, PROF.hand, w);
         for (const f of FINGERS) for (const j of JOINTS) {
           const r = hs[s + f + j]; if (!r) continue;
           this.track(s + f + j, r, 1, dt, PROF.finger, w);
         }
+      } else if (now - this.lastHand[s] > 0.4 && this.opts.solver === 'aim') {
+        this.rt.relaxHand(s, dt);
       } else if (now - this.lastHand[s] > 0.4) {
         // lost hand: relax fingers to a soft natural curl
         if (pose) this.rot(s + 'Hand', { x: 0, y: 0, z: poseHandZ }, 1, 0.2, dt);
@@ -216,6 +251,7 @@ export function solvePose(result, size, legs) {
   // avatar's RIGHT arm)
   const vis = (k) => lm[k].visibility ?? 1;
   pose.vis = { Right: { elbow: vis(13), wrist: vis(15) }, Left: { elbow: vis(14), wrist: vis(16) } };
+  pose.raw = { wl, lm, aspect: size.width / size.height };          // for the 3D aiming solver
   return pose;
 }
 
@@ -238,6 +274,7 @@ export function solveHands(handResult, poseLm) {
       avatarSide = label === 'Left' ? 'Left' : 'Right';
     }
     out[avatarSide] = Kalidokit.Hand.solve(h, avatarSide);
+    if (out[avatarSide]) { out[avatarSide].world = handResult.worldLandmarks?.[i] || null; out[avatarSide].lm = h; }
   });
   return out;
 }

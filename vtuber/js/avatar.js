@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMUtils } from '@pixiv/three-vrm';
-import { AVATAR_GROUPS } from './face-map.js?v=20261114.1833-4225601';
-import { buildFaceConstraints, primsFromThree } from './face-constraints.js?v=20261114.1833-4225601';
-import { FACE_LIMITS } from './face-limits.js?v=20261114.1833-4225601';
-import { FaceSmoother } from './face-smooth.js?v=20261114.1833-4225601';
-import { installScreenFx } from './screen-fx.js?v=20261114.1833-4225601';
+import { AVATAR_GROUPS } from './face-map.js?v=20261114.2020-4522d59';
+import { buildFaceConstraints, primsFromThree } from './face-constraints.js?v=20261114.2020-4522d59';
+import { FACE_LIMITS } from './face-limits.js?v=20261114.2020-4522d59';
+import { FaceSmoother } from './face-smooth.js?v=20261114.2020-4522d59';
+import { installScreenFx } from './screen-fx.js?v=20261114.2020-4522d59';
 
-export { OneEuro } from './face-smooth.js?v=20261114.1833-4225601';
+export { OneEuro } from './face-smooth.js?v=20261114.2020-4522d59';
 
 export class Avatar {
   constructor(scene) { this.scene = scene; this.vrm = null; this.smoother = new FaceSmoother(); this.fx = { shadeL: 0, shadeR: 0, red: 0, green: 0, furrow: 0 }; this.manualTint = null; }
