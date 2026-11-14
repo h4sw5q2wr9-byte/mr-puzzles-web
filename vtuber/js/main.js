@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
-import { Avatar } from './avatar.js?v=20261114.1638-6c504b5';
-import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261114.1638-6c504b5';
-import { Tracker } from './tracker.js?v=20261114.1638-6c504b5';
-import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261114.1638-6c504b5';
-import { FaceDriver, driverInput } from './face-driver.js?v=20261114.1638-6c504b5';
-import { saveModel, loadModel, clearModel } from './storage.js?v=20261114.1638-6c504b5';
-import { installLook } from './look.js?v=20261114.1638-6c504b5';
-import { Voice } from './voice.js?v=20261114.1638-6c504b5';
+import { Avatar } from './avatar.js?v=20261114.1833-4225601';
+import { BodyRig, solvePose, solveHands } from './body-rig.js?v=20261114.1833-4225601';
+import { Tracker } from './tracker.js?v=20261114.1833-4225601';
+import { categoriesToDict, DEFAULT_TUNING, STYLES } from './face-map.js?v=20261114.1833-4225601';
+import { FaceDriver, driverInput } from './face-driver.js?v=20261114.1833-4225601';
+import { saveModel, loadModel, clearModel } from './storage.js?v=20261114.1833-4225601';
+import { installLook } from './look.js?v=20261114.1833-4225601';
+import { Voice } from './voice.js?v=20261114.1833-4225601';
+import { TvController } from './tv.js?v=20261114.1833-4225601';
+import { POSES, PosePlayer } from './poses.js?v=20261114.1833-4225601';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -28,6 +30,8 @@ const state = {
   ...saved,
 };
 // settings from older versions: keep the user's sliders, add the new options with their defaults
+// TV: stand-by card when no face, glitches on head shake, optional CRT scanlines
+state.tv = { standby: true, glitches: true, crt: false, ...(saved.tv || {}) };
 state.tuning = { ...DEFAULT_TUNING, ...(saved.v >= 2 ? saved.tuning : { ...(saved.tuning || {}), style: DEFAULT_TUNING.style }) };
 // settings saved by the reverted phase-2 build (v4) are cleaned up once
 if (!(saved.v >= 3) || saved.v === 4) { for (const k of ['view', 'track', 'preview', 'armGain', 'arMode', 'arHide', 'arScale', 'debug', 'perf', 'auto', 'poses', 'lipsync', 'staticFx', 'sweat', 'recAudio', 'recClean']) delete state[k]; }
@@ -38,17 +42,19 @@ const persist = () => { try { localStorage.setItem('mp-settings', JSON.stringify
 
 // ---------------------------------------------------------------- three.js
 const canvas = $('#stage');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: TEST, alpha: false });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: TEST, alpha: true });   // alpha: transparent background for OBS
+renderer.setClearColor(0x000000, 0);
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TEST ? 1 : 2));
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(state.bg);
 const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
 // lights + materials come from look.js (Studio = lit like the Blender renders, Toon = flat VRM look)
 let look = null;
 if (state.look === 'studio') state.look = 'medium'; else if (state.look === 'toon') state.look = 'low';
 const avatar = new Avatar(scene);
-const voice = new Voice(); avatar.voice = voice;
+const voice = new Voice(); avatar.voice = voice; voice.tvVoice = !!state.tvVoice;
+const tv = new TvController();
+const poser = new PosePlayer(); avatar.poser = poser;
 let rig = null;
 const camTarget = new THREE.Vector3(0, 1.4, 0), camPos = new THREE.Vector3(0, 1.45, 1.3);
 
@@ -77,7 +83,8 @@ async function useModel(buf, remember = true) {
   status('Loading avatar…');
   await avatar.load(buf);
   rig = new BodyRig(avatar.vrm);
-  look?.dispose(); look = installLook(THREE, { renderer, scene, vrm: avatar.vrm }); look.set(state.look);
+  look?.dispose(); look = installLook(THREE, { renderer, scene, vrm: avatar.vrm }); look.set(state.look); applyBackground();
+  tv.reset(wantStandby()); headQValid = false;
   if (!avatar.hasPuzzlesFace) toast('This VRM has no Mr. Puzzles face groups – only head/body will move.');
   else if (avatar.missingGroups.length) toast('This is an older Mr. Puzzles model: tap ⚙︎ → Advanced → Use built-in Mr. Puzzles for the new eye shapes.', 9000);
   if (remember) saveModel(buf, { kind: 'custom' }).catch(() => {});
@@ -159,7 +166,7 @@ function processFrame(src, nowMs, dt) {
   const now = nowMs / 1000;
   // face ----------------------------------------------------------------
   const fl = res.face?.faceLandmarks?.[0];
-  stats.face = !!fl;
+  stats.face = !!fl; lastFrameAt = performance.now(); lostFor = fl ? 0 : lostFor + dt;
   if (fl) {
     const inp = driverInput(res.face, w / h);
     const r = driver.step(inp, dt, { tuning: state.tuning, mirror: state.mirror });
@@ -182,6 +189,25 @@ function processFrame(src, nowMs, dt) {
   return res;
 }
 let lastFace = null;
+// ---------------------------------------------------------------- TV (stand-by card + glitches)
+let lostFor = 99, lastFrameAt = -1e9;
+const headQ = new THREE.Quaternion(), headQPrev = new THREE.Quaternion(); let headQValid = false;
+function wantStandby() {
+  if (!state.tv.standby || !avatar.vrm || avatar.posing) return false;
+  const tracking = running || performance.now() - lastFrameAt < 1500;   // live camera or a test driving frames
+  return tracking ? lostFor > 1.0 : !voice.on;                         // camera off: card, unless talking via the mic
+}
+function tvStep(dt) {
+  if (!avatar.vrm || !avatar.screenFx) return;
+  // how fast the head turns (rad/s): a hard shake makes the picture tear
+  let speed = 0;
+  avatar.vrm.humanoid.getBoneNode('head').getWorldQuaternion(headQ);
+  if (headQValid && dt > 0) speed = 2 * Math.acos(Math.min(1, Math.abs(headQ.dot(headQPrev)))) / dt;
+  headQPrev.copy(headQ); headQValid = true;
+  const o = tv.update(dt, wantStandby(), lostFor > 0 ? 0 : speed, { glitches: state.tv.glitches, crt: state.tv.crt });
+  if (state.tv.glitches) o.glitch = Math.max(o.glitch, poser.glitch);      // e.g. a jolt of static on Shock
+  avatar.screenFx.setTv(o);
+}
 
 function loop() {
   requestAnimationFrame(loop);
@@ -195,6 +221,7 @@ function loop() {
   }
   if (voice.on || voice.env > 0.001) { const lv = voice.update(dt); $('#btn-mic').style.setProperty('--lvl', (lv * 100).toFixed(0) + '%'); }
   avatar.update(dt);
+  tvStep(dt);
   frameCamera(dt);
   if (look) look.render(camera); else renderer.render(scene, camera);
   stats.n++;
@@ -227,12 +254,59 @@ function toggleRecord() {
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   rec.onstop = async () => {
     const blob = new Blob(chunks, { type }); rec = null; $('#btn-rec').classList.remove('on');
-    const file = new File([blob], `mr-puzzles-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`, { type });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); return; } catch {} }
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+    shareOrDownload(blob, `mr-puzzles-${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`);
   };
   rec.start(); $('#btn-rec').classList.add('on');
 }
+
+/** Share sheet on phones (Save Video / Save Image), download elsewhere */
+async function shareOrDownload(blob, name) {
+  const file = new File([blob], name, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+}
+
+// ---------------------------------------------------------------- photo
+/** PNG of the avatar (keeps the transparency on a transparent background). Synchronous on purpose:
+ *  iOS only opens the Share sheet straight from the tap. */
+function takePhoto() {
+  if (!avatar.vrm) return null;
+  if (look) look.render(camera); else renderer.render(scene, camera);
+  const url = canvas.toDataURL('image/png');
+  const bin = atob(url.split(',')[1]), buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const blob = new Blob([buf], { type: 'image/png' });
+  const f = $('#flash'); f.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove('on')));
+  return blob;
+}
+
+// ---------------------------------------------------------------- streaming: background + clean view
+const CHROMA = ['#00b140', '#0047bb', 'transparent'];
+function applyBackground() {
+  const transparent = state.bg === 'transparent';
+  scene.background = transparent ? null : new THREE.Color(state.bg);
+  document.documentElement.classList.toggle('transparent', transparent);
+  look?.setFloor(!CHROMA.includes(state.bg));
+}
+function setClean(on) {
+  document.documentElement.classList.toggle('clean', on);
+  if (on) toast('Clean view: double-tap the screen or press H to show the buttons', 3000);
+}
+const isClean = () => document.documentElement.classList.contains('clean');
+// double-tap / double-click anywhere on the avatar brings the controls back (works with touch and mouse)
+let lastTap = { t: 0, x: 0, y: 0 };
+canvas.addEventListener('pointerdown', (e) => {
+  const now = performance.now();
+  if (now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) { if (isClean()) setClean(false); lastTap.t = 0; return; }
+  lastTap = { t: now, x: e.clientX, y: e.clientY };
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest && e.target.closest('input, select, textarea')) return;
+  if (e.key === 'h' || e.key === 'H') setClean(!isClean());
+  else if (e.key === 'Escape' && isClean()) setClean(false);
+});
+if (params.has('clean')) setClean(true);
 
 // ---------------------------------------------------------------- UI
 function status(s) { $('#status').textContent = s; $('#status').hidden = !s; }
@@ -241,10 +315,12 @@ const SLIDERS = ['intensity', 'eyeIntensity', 'mouthIntensity', 'browIntensity',
 function syncUI() {
   document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === state.mode));
   $('#feed').hidden = !state.showFeed; video.classList.toggle('mirror', state.facing === 'user');
-  scene.background = new THREE.Color(state.bg);
+  applyBackground();
   for (const k of SLIDERS) { const el = $('#t-' + k); if (el) el.value = state.tuning[k]; }
   $('#o-style').value = state.tuning.style;
   $('#o-mirror').checked = state.mirror; $('#o-feed').checked = state.showFeed; $('#o-mood').checked = state.tuning.autoMoodColor;
+  $('#o-standby').checked = state.tv.standby; $('#o-glitch').checked = state.tv.glitches; $('#o-crt').checked = state.tv.crt;
+  $('#o-tvvoice').checked = !!state.tvVoice; $('#o-poses').checked = !!state.poseButtons; $('#poses').hidden = !state.poseButtons;
   $('#o-green').checked = state.tuning.greenFx; $('#o-glasses').checked = !!state.tuning.glasses;
   $('#o-pose').value = state.poseModel; $('#o-facing').value = state.facing; $('#o-delegate').value = state.delegate; $('#o-bg').value = state.bg; $('#o-look').value = state.look;
 }
@@ -254,7 +330,7 @@ document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('clic
   if (running) { status('Loading models…'); await ensureModels(); status(''); }
 }));
 $('#btn-cam').addEventListener('click', () => (running ? stopCamera() : startCamera()));
-$('#btn-cal').addEventListener('click', startCalibration);
+$('#btn-cal').addEventListener('click', () => { $('#settings').hidden = true; startCalibration(); });
 $('#btn-rec').addEventListener('click', toggleRecord);
 $('#btn-mic').addEventListener('click', async () => {
   const b = $('#btn-mic');
@@ -264,6 +340,8 @@ $('#btn-mic').addEventListener('click', async () => {
     toast(rec ? 'Mic on: the mouth follows your voice (audio starts with the next recording)' : 'Mic on: the mouth follows your voice, recordings include audio');
   } catch (e) { console.error(e); toast('Microphone not available (permission denied?)'); }
 });
+$('#btn-photo').addEventListener('click', () => { const b = takePhoto(); if (b) shareOrDownload(b, `mr-puzzles-${Date.now()}.png`); });
+$('#o-clean').addEventListener('click', () => setClean(true));
 $('#btn-set').addEventListener('click', () => ($('#settings').hidden = !$('#settings').hidden));
 $('#btn-load').addEventListener('click', () => $('#file').click());
 $('#btn-builtin').addEventListener('click', async () => { await clearModel(); location.reload(); });
@@ -274,6 +352,29 @@ document.querySelectorAll('[data-tint]').forEach((b) => b.addEventListener('clic
 }));
 for (const k of SLIDERS) $('#t-' + k)?.addEventListener('input', (e) => { state.tuning[k] = +e.target.value; persist(); });
 $('#o-style').addEventListener('change', (e) => { state.tuning.style = e.target.value; persist(); });
+$('#o-standby').addEventListener('change', (e) => { state.tv.standby = e.target.checked; persist(); });
+$('#o-glitch').addEventListener('change', (e) => { state.tv.glitches = e.target.checked; persist(); });
+$('#o-crt').addEventListener('change', (e) => { state.tv.crt = e.target.checked; persist(); });
+$('#o-poses').addEventListener('change', (e) => { state.poseButtons = e.target.checked; persist(); syncUI(); });
+// expression buttons: tap = play, hold = keep; keys 1-6 the same
+{
+  const row = $('#poses');
+  for (const p of POSES) {
+    const b = document.createElement('button'); b.dataset.pose = p.id; b.title = p.label + ' (tap, or hold)';
+    b.innerHTML = `<span class="i">${p.icon}</span><span>${p.label}</span>`;
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); b.setPointerCapture?.(e.pointerId); poser.press(p.id); b.classList.add('on'); });
+    const up = () => { if (!b.classList.contains('on')) return; poser.release(); b.classList.remove('on'); };
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+    row.appendChild(b);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat || (e.target.closest && e.target.closest('input, select, textarea'))) return;
+    const p = POSES[+e.key - 1]; if (p) poser.press(p.id);
+  });
+  document.addEventListener('keyup', (e) => { if (POSES[+e.key - 1]) poser.release(); });
+}
+$('#o-tvvoice').addEventListener('change', (e) => { state.tvVoice = e.target.checked; persist(); voice.setTvVoice(state.tvVoice); });
 $('#o-green').addEventListener('change', (e) => { state.tuning.greenFx = e.target.checked; persist(); });
 $('#o-glasses').addEventListener('change', (e) => { state.tuning.glasses = e.target.checked; persist(); toast(e.target.checked ? 'Glasses mode: eye tracking is steadier, blinks need a clearer close' : 'Glasses mode off'); });
 $('#o-mirror').addEventListener('change', (e) => { state.mirror = e.target.checked; persist(); });
@@ -294,6 +395,8 @@ window.app = {
   state, avatar, tracker, driver, ensureModels, useModel, processFrame, frameCamera,
   get rig() { return rig; },
   get look() { return look; },
-  render() { avatar.update(1 / 30); frameCamera(1 / 30, true); if (look) look.render(camera); else renderer.render(scene, camera); },
+  render(dt = 1 / 30) { avatar.update(dt); tvStep(dt); frameCamera(dt, true); if (look) look.render(camera); else renderer.render(scene, camera); },
   setMode(m) { state.mode = m; syncUI(); },
+  tv, get lostFor() { return lostFor; }, takePhoto, setClean, poser, voice,
+  simulateFace(found, dt = 1 / 30) { lastFrameAt = performance.now(); lostFor = found ? 0 : lostFor + dt; },
 };

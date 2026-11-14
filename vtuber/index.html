@@ -12,6 +12,13 @@
   :root { --bg:#1c1529; --panel:rgba(28,21,41,.86); --ink:#f4effa; --muted:#b3a6c9; --accent:#e8486f; --accent2:#46c9c4; --line:rgba(255,255,255,.12); }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:15px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
+  html.transparent, html.transparent body { background:transparent; }
+  html.clean .bar, html.clean #hud, html.clean #settings, html.clean #feed { display:none !important; }
+  .row.poses { gap:6px; flex-wrap:nowrap; justify-content:center; }
+  .row.poses button { display:flex; flex-direction:column; align-items:center; gap:1px; padding:5px 8px; min-width:50px; font-size:11px; line-height:1.1; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
+  .row.poses button .i { font-size:20px; line-height:1.15; }
+  #flash { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity .35s ease-out; }
+  #flash.on { opacity:.85; transition:none; }
   #stage { position:fixed; inset:0; width:100vw; height:100dvh; display:block; touch-action:none; }
   #feed { position:fixed; top:calc(env(safe-area-inset-top) + 10px); left:10px; width:28vw; max-width:180px; border-radius:12px; overflow:hidden; border:1px solid var(--line); box-shadow:0 6px 20px rgba(0,0,0,.4); }
   #feed video { width:100%; display:block; }
@@ -31,7 +38,8 @@
   #btn-rec.on { background:#d22; }
   #btn-mic { --lvl:0%; }
   .row.main { gap:6px; flex-wrap:nowrap; } .row.main button { padding:10px 11px; white-space:nowrap; } .row.main #btn-cam { min-width:70px; }
-  @media (max-width:380px) { .row.main { gap:5px; } .row.main button { padding:10px 8px; font-size:14px; } .row.main #btn-cam { min-width:0; } }
+  @media (max-width:380px) { .row.main { gap:5px; } .row.main button { padding:10px 8px; font-size:14px; } .row.main #btn-cam { min-width:0; }
+    .row.poses { gap:4px; } .row.poses button { min-width:44px; padding:5px 3px; font-size:10px; } }
   #btn-mic.on { background:linear-gradient(to top, var(--accent2) var(--lvl), var(--accent) var(--lvl)); border-color:transparent; }
   #settings { position:fixed; left:10px; right:10px; bottom:calc(env(safe-area-inset-bottom) + 130px); max-height:56dvh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); }
   #settings h3 { margin:4px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
@@ -56,6 +64,7 @@
 </head>
 <body>
 <canvas id="stage"></canvas>
+<div id="flash"></div>
 <div id="feed"><video id="video" playsinline muted autoplay></video></div>
 <div id="hud"></div>
 <div id="status" hidden></div>
@@ -70,6 +79,7 @@
 </div></div>
 
 <div id="settings" hidden>
+  <div class="row" style="justify-content:flex-start;margin-top:0"><button id="btn-cal">Calibrate my neutral face</button><span class="fine" style="align-self:center">Relax and look at the screen for a second</span></div>
   <h3>Tracking style</h3>
   <label>Style <select id="o-style">
     <option value="zamination">ZAMination (dramatic cartoon)</option>
@@ -88,16 +98,25 @@
   <label>Red flash on sudden anger / shouting <input id="o-mood" type="checkbox"></label>
   <label>Green screen when disgusted <input id="o-green" type="checkbox"></label>
   <label>Eyelid / brow shading <input id="t-shading" type="range" min="0" max="1.5" step="0.05"></label>
+  <label>"Please Stand By" card when no face is found <input id="o-standby" type="checkbox"></label>
+  <label>TV glitches (static when you shake your head) <input id="o-glitch" type="checkbox"></label>
+  <label>Old-TV scanlines <input id="o-crt" type="checkbox"></label>
   <div class="row" style="justify-content:flex-start;margin:0 0 8px">
     <span class="fine" style="align-self:center">Force colour:</span>
     <button data-tint="auto" class="on">Auto</button><button data-tint="red">Red</button><button data-tint="green">Green</button>
   </div>
+  <h3>Buttons</h3>
+  <label>Expression buttons (tap or hold; keys 1–6) <input id="o-poses" type="checkbox"></label>
+  <h3>Microphone</h3>
+  <label>TV speaker voice in recordings <input id="o-tvvoice" type="checkbox"></label>
   <h3>Camera</h3>
   <label>Camera <select id="o-facing"><option value="user">Front (selfie)</option><option value="environment">Back</option></select></label>
   <label>Body model <select id="o-pose"><option value="lite">Lite (faster)</option><option value="full">Full (more accurate)</option></select></label>
   <label>Show camera preview <input id="o-feed" type="checkbox"></label>
   <label>Quality <select id="o-look"><option value="low">Low (flat, fastest)</option><option value="medium">Medium (lit)</option><option value="high">High (rendered look)</option></select></label>
-  <label>Background <select id="o-bg"><option value="#2b2140">PuzzleVision purple</option><option value="#0d0912">Studio dark</option><option value="#00b140">Green screen</option><option value="#0047bb">Blue screen</option><option value="#111111">Black</option><option value="#f2f0f5">White</option></select></label>
+  <label>Background <select id="o-bg"><option value="#2b2140">PuzzleVision purple</option><option value="#0d0912">Studio dark</option><option value="#00b140">Green screen</option><option value="#0047bb">Blue screen</option><option value="#111111">Black</option><option value="#f2f0f5">White</option><option value="transparent">Transparent (OBS browser source)</option></select></label>
+  <div class="row" style="justify-content:flex-start"><button id="o-clean">Clean view (hide the buttons)</button></div>
+  <p class="fine">Streaming: pick <b>Green screen</b>, then in OBS add a <i>Window Capture</i> of this browser window with a <i>Chroma Key</i> filter. Or pick <b>Transparent</b> and add this page as a <i>Browser Source</i> (OBS needs camera access for that: start OBS with <code>--enable-media-stream</code>). Clean view: double-tap the screen or press <b>H</b> to bring the buttons back.</p>
   <div class="row"><button id="o-reset">Reset calibration &amp; settings</button></div>
   <details><summary>Advanced</summary>
     <label>Processor <select id="o-delegate"><option value="GPU">GPU</option><option value="CPU">CPU</option></select></label>
@@ -109,17 +128,18 @@
 </div>
 
 <div class="bar">
+  <div class="row poses" id="poses" hidden></div>
   <div class="row">
     <div class="seg"><button data-mode="face">Face</button><button data-mode="upper">Upper body</button><button data-mode="full">Full body</button></div>
   </div>
   <div class="row main">
     <button id="btn-cam">Start</button>
-    <button id="btn-cal">Calibrate</button>
     <button id="btn-rec">● Rec</button>
     <button id="btn-mic" aria-label="Microphone">🎙︎ Mic</button>
+    <button id="btn-photo" aria-label="Take a photo">📷</button>
     <button id="btn-set">⚙︎</button>
   </div>
 </div>
-<script type="module" src="js/main.js?v=20261114.1638-6c504b5"></script>
+<script type="module" src="js/main.js?v=20261114.1833-4225601"></script>
 </body>
 </html>

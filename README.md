@@ -55,12 +55,26 @@ eyes, brows, rainbow mouth and screen effects.
 
   A geometric solver keeps the brows above the eyes, the mouth out of the eyes, and everything
   inside the screen.
+* **"Please Stand By":** when no face is found, the TV shows the PuzzleVision test card, with a
+  burst of static on the switch. Shaking your head hard makes the picture tear. Old-TV scanlines
+  are optional.
 * **🎙︎ Mic:** recordings include your voice. The mouth also reacts to it: it opens with
-  loudness, wobbles per syllable, and sways to one side.
-* **● Rec:** records the avatar and opens the Share sheet on phones.
+  loudness, wobbles per syllable, and sways to one side. An optional TV-speaker voice effect
+  applies to recordings.
+* **● Rec and 📷 photo:** record a video or take a PNG (it stays transparent on a transparent
+  background). On phones both open the Share sheet.
+* **Expression buttons** (optional): Rage, Shock, Stare, Smug, Joy, Worry. Tap or hold; keys 1–6
+  do the same.
+* **Streaming:**
+  * Green screen or transparent background (for an OBS Browser Source).
+  * Clean view hides the buttons; double-tap or press H to bring them back. `?clean` starts in
+    clean view.
+* **Body tracking:** steadier arms with adaptive smoothing. Glitch rejection uses landmark
+  visibility, and hands fade in and out instead of snapping.
 * **Quality:** low (flat toon), medium (lit) and high (rendered look).
 * **Settings** (⚙︎, remembered on the device):
   * tracking style (ZAMination, Balanced, Accurate) and exaggeration sliders
+  * Calibrate
   * Invert face left/right
   * "I wear glasses" mode
   * Background, camera and tracker

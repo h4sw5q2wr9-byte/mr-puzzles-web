@@ -9,6 +9,32 @@ export class Voice {
   constructor() {
     this.on = false; this.level = 0; this.env = 0; this.phase = 0; this.sway = 0; this.side = 1;
     this.round = 0; this.silence = 1; this.floor = -60; this.peak = -30; this.ctx = null; this.stream = null; this.src = null;
+    this.tvVoice = false;
+  }
+
+  /** the "voice from a TV speaker" chain for recordings: band-limited (old speaker), a nasal mid boost,
+   *  soft saturation and a compressor so it sounds like a broadcast. The mouth still listens to the
+   *  clean signal. */
+  buildTvChain() {
+    const c = this.ctx, f = (type, freq, q, gain) => { const n = c.createBiquadFilter(); n.type = type; n.frequency.value = freq; n.Q.value = q; if (gain !== undefined) n.gain.value = gain; return n; };
+    const pre = [f('highpass', 330, 0.7), f('highpass', 330, 0.7), f('peaking', 1800, 1.1, 6), f('peaking', 900, 1.4, -2)];
+    const post = [f('lowpass', 3500, 0.9), f('lowpass', 3500, 0.7)];      // after the saturation: no fizz
+    const shaper = c.createWaveShaper(), k = 2.2, n = 1024, curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; curve[i] = Math.tanh(k * x) / Math.tanh(k); }
+    shaper.curve = curve; shaper.oversample = '2x';
+    const comp = c.createDynamicsCompressor(); comp.threshold.value = -26; comp.ratio.value = 5; comp.attack.value = 0.004; comp.release.value = 0.15;
+    const out = c.createGain(); out.gain.value = 1.15;
+    this.tvIn = c.createGain();
+    [this.tvIn, ...pre, shaper, ...post, comp, out].reduce((a, b) => (a.connect(b), b));
+    out.connect(this.dest);
+  }
+
+  /** route the recording through the TV chain (can change while recording) */
+  setTvVoice(on) {
+    this.tvVoice = !!on;
+    if (!this.src) return;
+    try { this.src.disconnect(); } catch {}
+    this.src.connect(this.analyser); this.src.connect(this.tvVoice ? this.tvIn : this.dest);
   }
 
   /** must be called from a user gesture (iOS) */
@@ -19,13 +45,14 @@ export class Voice {
       this.analyser = this.ctx.createAnalyser(); this.analyser.fftSize = 1024; this.analyser.smoothingTimeConstant = 0.2;
       this.dest = this.ctx.createMediaStreamDestination();       // recordings take their audio from here
       this.td = new Float32Array(this.analyser.fftSize); this.fd = new Float32Array(this.analyser.frequencyBinCount);
+      this.buildTvChain();
     }
     const resumed = this.ctx.resume();            // inside the tap (iOS unlocks audio only there)
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     await resumed;
     this.src = this.ctx.createMediaStreamSource(this.stream);
-    this.src.connect(this.analyser); this.src.connect(this.dest);
     this.on = true;
+    this.setTvVoice(this.tvVoice);
   }
 
   stop() {

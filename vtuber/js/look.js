@@ -104,6 +104,9 @@ export function installLook(THREE, { renderer, scene, vrm }) {
 
   const api = {
     mode: 'medium',
+    floorAllowed: true,
+    /** the contact shadow is hidden on green / blue / transparent backgrounds (it would break the key) */
+    setFloor(v) { api.floorAllowed = v; floor.visible = api.mode !== 'low' && v; },
     set(mode) {
       mode = mode === 'studio' ? 'medium' : mode === 'toon' ? 'low' : mode;
       api.mode = mode;
@@ -113,7 +116,7 @@ export function installLook(THREE, { renderer, scene, vrm }) {
         // fuzzy fabric (gloves, sleeves) in high quality
         if (s.studioMat.userData.fabric && 'sheen' in s.studioMat) { s.studioMat.sheen = high ? 1 : 0; }
       }
-      toon.visible = !lit; studio.visible = lit; floor.visible = lit;
+      toon.visible = !lit; studio.visible = lit; floor.visible = lit && api.floorAllowed;
       renderer.shadowMap.enabled = lit; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       const key = studio.children[0];
       const ms = high ? 2048 : 1024;

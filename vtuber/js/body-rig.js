@@ -1,5 +1,10 @@
-// Applies Kalidokit solutions (the same solver Kalidoface 3D uses) to the VRM humanoid,
-// with frame-rate independent smoothing, per-limb tracking-loss recovery and foot grounding.
+// Applies Kalidokit solutions (the same solver Kalidoface 3D uses) to the VRM humanoid.
+//  * adaptive smoothing per bone (One-Euro style, in rotation space): still -> heavy smoothing, no
+//    shake; fast moves -> follows quickly
+//  * trust per arm segment from MediaPipe's landmark visibility: a hidden elbow / wrist is followed
+//    less, single-frame jumps from unreliable landmarks are ignored, and an arm that stays hidden eases
+//    into a relaxed pose instead of flailing
+//  * detected hands fade in / out instead of snapping; per-limb tracking-loss recovery; foot grounding
 import * as THREE from 'three';
 import * as Kalidokit from 'kalidokit';
 import { VRMSchema } from '@pixiv/three-vrm';
@@ -8,6 +13,17 @@ const R = Kalidokit.Utils.RestingDefault.Pose;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // lerp factor tuned at 60 fps -> same feel at any frame rate
 const rate = (k, dt) => 1 - Math.pow(1 - k, Math.max(dt, 1 / 240) * 60);
+// low-pass factor for a cutoff frequency (Hz)
+const alphaHz = (fc, dt) => 1 - Math.exp(-2 * Math.PI * fc * Math.max(dt, 1 / 240));
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+// smoothing profiles: minCut = cutoff when still (Hz), beta = extra cutoff per rad/s of movement
+const PROF = {
+  torso: { minCut: 0.9, beta: 0.5 },
+  arm: { minCut: 1.3, beta: 0.55 },
+  hand: { minCut: 0.9, beta: 0.35 },
+  finger: { minCut: 2.0, beta: 0.5 },
+  leg: { minCut: 1.2, beta: 0.9 },
+};
 
 const IDLE = {
   RightUpperArm: { x: 0, y: 0, z: -1.25 }, LeftUpperArm: { x: 0, y: 0, z: 1.25 },
@@ -31,6 +47,9 @@ export class BodyRig {
     this.footAnchor = null;
     this.toesRestY = Math.min(this.worldY('LeftFoot'), this.worldY('RightFoot'));
     this.groundOffset = 0;
+    this.filt = {};                      // per bone: smoothed angular speed
+    this.handW = { Left: 0, Right: 0 };   // how much the hand tracker drives each wrist / fingers
+    this.armHidden = { Left: 0, Right: 0 };   // seconds an arm has been (mostly) invisible
   }
   worldY(n) { const b = this.bone(n); b.updateWorldMatrix(true, false); return b.getWorldPosition(_v).y; }
 
@@ -41,7 +60,34 @@ export class BodyRig {
     b.quaternion.slerp(_q, rate(k, dt));
   }
 
-  /** head rotation from Kalidokit.Face.solve (radians). Split between neck and head. */
+  /** live tracking: move the bone toward r with adaptive smoothing; conf (0..1) = how much to trust r */
+  track(name, r, damp, dt, prof, conf = 1) {
+    const b = this.bone(name); if (!b || !r) return;
+    _e.set((r.x || 0) * damp, (r.y || 0) * damp, (r.z || 0) * damp, r.rotationOrder || 'XYZ');
+    _q.setFromEuler(_e);
+    const st = this.filt[name] || (this.filt[name] = { vs: 0, pending: null, pendingN: 0, lastRaw: null, age: 0 });
+    const jump = b.quaternion.angleTo(_q);
+    // the TARGET jumping faster than a real arm can move (~10 rad/s) is only followed once the next
+    // frames confirm it (bigger jump -> more frames): genuine moves persist, tracking glitches flip back.
+    // Compared with the last accepted target (not the smoothed bone, whose lag is not a glitch).
+    const limit = Math.max(0.35, 10 * dt);
+    st.age += dt;
+    if (st.lastRaw && st.age < 0.3) {
+      const rawJump = st.lastRaw.angleTo(_q);
+      if (rawJump > limit) {
+        // consistent with the previous unconfirmed target (moving at a plausible speed)? count it
+        if (st.pending && st.pending.angleTo(_q) < limit) st.pendingN++; else st.pendingN = 1;
+        (st.pending || (st.pending = new THREE.Quaternion())).copy(_q);
+        if (st.pendingN <= Math.min(2, Math.ceil(rawJump / limit) - 1)) return;
+      }
+    }
+    st.pending = null; st.age = 0;
+    (st.lastRaw || (st.lastRaw = new THREE.Quaternion())).copy(_q);
+    st.vs += (jump / Math.max(dt, 1 / 240) - st.vs) * alphaHz(3, dt);
+    const a = alphaHz(prof.minCut + prof.beta * st.vs, dt) * conf;
+    b.quaternion.slerp(_q, a);
+  }
+
   /** head rotation (Kalidokit); the face's left/right is set separately by the "Invert face" setting */
   applyHead(face, dt, hipsYaw = 0) {
     if (!face) return;
@@ -78,17 +124,30 @@ export class BodyRig {
           this.hipsRest.z - (legs ? clamp(hp.position.z + 1.1, -1, 1) * 0.3 : 0));
         hips.position.lerp(target, rate(0.12, dt));
       }
-      this.rot('Hips', { x: legs ? hp.rotation.x : 0, y: hp.rotation.y, z: hp.rotation.z }, 0.7, 0.25, dt);
-      this.rot('Chest', pose.Spine, 0.25, 0.3, dt);
-      this.rot('Spine', pose.Spine, 0.45, 0.3, dt);
+      this.track('Hips', { x: legs ? hp.rotation.x : 0, y: hp.rotation.y, z: hp.rotation.z }, 0.7, dt, PROF.torso);
+      this.track('Chest', pose.Spine, 0.25, dt, PROF.torso);
+      this.track('Spine', pose.Spine, 0.45, dt, PROF.torso);
       for (const s of ['Right', 'Left']) {
-        this.rot(s + 'UpperArm', pose[s + 'UpperArm'], 1, 0.35, dt);
-        this.rot(s + 'LowerArm', pose[s + 'LowerArm'], 1, 0.35, dt);
+        // trust from landmark visibility: the upper arm needs the elbow, the forearm the wrist too
+        // (with the phone framing chest-up the elbows are often below the picture: if the hand tracker
+        // sees that hand, the arm is clearly up and in view, so it is trusted reasonably)
+        const v = pose.vis ? pose.vis[s] : { elbow: 1, wrist: 1 };
+        const seen = hands && hands[s] ? 0.65 : 0;
+        const cU = Math.max(seen, smoothstep(0.3, 0.7, v.elbow)), cL = Math.max(seen, Math.min(cU, smoothstep(0.3, 0.7, v.wrist)));
+        this.armHidden[s] = cL < 0.25 ? this.armHidden[s] + dt : 0;
+        if (this.armHidden[s] > 0.6) {
+          // out of view for a while: let the arm hang relaxed instead of guessing
+          this.rot(s + 'UpperArm', IDLE[s + 'UpperArm'], 1, 0.05, dt);
+          this.rot(s + 'LowerArm', IDLE[s + 'LowerArm'], 1, 0.05, dt);
+        } else {
+          this.track(s + 'UpperArm', pose[s + 'UpperArm'], 1, dt, PROF.arm, cU);
+          this.track(s + 'LowerArm', pose[s + 'LowerArm'], 1, dt, PROF.arm, cL);
+        }
         if (legs) {
           // keep knees/hips inside a natural range (no backward knees, no splits)
           const ul = pose[s + 'UpperLeg'], ll = pose[s + 'LowerLeg'];
-          this.rot(s + 'UpperLeg', { x: clamp(ul.x, -2.0, 0.9), y: clamp(ul.y, -0.8, 0.8), z: clamp(ul.z, -0.9, 0.9), rotationOrder: ul.rotationOrder }, 1, 0.3, dt);
-          this.rot(s + 'LowerLeg', { x: clamp(ll.x, -0.05, 2.4), y: 0, z: 0, rotationOrder: ll.rotationOrder }, 1, 0.3, dt);
+          this.track(s + 'UpperLeg', { x: clamp(ul.x, -2.0, 0.9), y: clamp(ul.y, -0.8, 0.8), z: clamp(ul.z, -0.9, 0.9), rotationOrder: ul.rotationOrder }, 1, dt, PROF.leg);
+          this.track(s + 'LowerLeg', { x: clamp(ll.x, -0.05, 2.4), y: 0, z: 0, rotationOrder: ll.rotationOrder }, 1, dt, PROF.leg);
         } else {
           this.rot(s + 'UpperLeg', IDLE[s + 'UpperLeg'], 1, 0.1, dt);
           this.rot(s + 'LowerLeg', IDLE[s + 'LowerLeg'], 1, 0.1, dt);
@@ -99,12 +158,15 @@ export class BodyRig {
     for (const s of ['Right', 'Left']) {
       const hs = hands && hands[s];
       if (hs) this.lastHand[s] = now;
+      // the hand tracker's influence fades in quickly and out slowly (no snapping when it flickers)
+      this.handW[s] += ((hs ? 1 : 0) - this.handW[s]) * Math.min(1, dt * (hs ? 10 : 3));
       const poseHandZ = pose ? pose[s + 'Hand'].z : 0;
       if (hs) {
-        this.rot(s + 'Hand', { x: hs[s + 'Wrist'].x, y: hs[s + 'Wrist'].y, z: poseHandZ }, 1, 0.35, dt);
+        const w = this.handW[s];
+        this.track(s + 'Hand', { x: hs[s + 'Wrist'].x, y: hs[s + 'Wrist'].y, z: poseHandZ }, 1, dt, PROF.hand, w);
         for (const f of FINGERS) for (const j of JOINTS) {
           const r = hs[s + f + j]; if (!r) continue;
-          this.rot(s + f + j, r, 1, 0.4, dt);
+          this.track(s + f + j, r, 1, dt, PROF.finger, w);
         }
       } else if (now - this.lastHand[s] > 0.4) {
         // lost hand: relax fingers to a soft natural curl
@@ -148,7 +210,13 @@ export function solvePose(result, size, legs) {
   const lm = result.landmarks[0], wl = result.worldLandmarks[0];
   // need at least shoulders visible
   if ((lm[11].visibility ?? 1) < 0.5 || (lm[12].visibility ?? 1) < 0.5) return null;
-  return Kalidokit.Pose.solve(wl, lm, { runtime: 'mediapipe', imageSize: size, enableLegs: legs });
+  const pose = Kalidokit.Pose.solve(wl, lm, { runtime: 'mediapipe', imageSize: size, enableLegs: legs });
+  if (!pose) return null;
+  // visibility per avatar arm (mirror convention: the person's LEFT side, landmarks 13/15, drives the
+  // avatar's RIGHT arm)
+  const vis = (k) => lm[k].visibility ?? 1;
+  pose.vis = { Right: { elbow: vis(13), wrist: vis(15) }, Left: { elbow: vis(14), wrist: vis(16) } };
+  return pose;
 }
 
 /**

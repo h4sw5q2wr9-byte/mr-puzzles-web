@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRM, VRMUtils } from '@pixiv/three-vrm';
-import { AVATAR_GROUPS } from './face-map.js?v=20261114.1638-6c504b5';
-import { buildFaceConstraints, primsFromThree } from './face-constraints.js?v=20261114.1638-6c504b5';
-import { FACE_LIMITS } from './face-limits.js?v=20261114.1638-6c504b5';
-import { FaceSmoother } from './face-smooth.js?v=20261114.1638-6c504b5';
-import { installScreenFx } from './screen-fx.js?v=20261114.1638-6c504b5';
+import { AVATAR_GROUPS } from './face-map.js?v=20261114.1833-4225601';
+import { buildFaceConstraints, primsFromThree } from './face-constraints.js?v=20261114.1833-4225601';
+import { FACE_LIMITS } from './face-limits.js?v=20261114.1833-4225601';
+import { FaceSmoother } from './face-smooth.js?v=20261114.1833-4225601';
+import { installScreenFx } from './screen-fx.js?v=20261114.1833-4225601';
 
-export { OneEuro } from './face-smooth.js?v=20261114.1638-6c504b5';
+export { OneEuro } from './face-smooth.js?v=20261114.1833-4225601';
 
 export class Avatar {
   constructor(scene) { this.scene = scene; this.vrm = null; this.smoother = new FaceSmoother(); this.fx = { shadeL: 0, shadeR: 0, red: 0, green: 0, furrow: 0 }; this.manualTint = null; }
@@ -39,6 +39,8 @@ export class Avatar {
     const vrm = this.vrm; if (!vrm) return;
     const groups = AVATAR_GROUPS.filter((g) => this.groups.includes(g) && !g.startsWith('eyeCorrect'));
     const out = this.smoother.step(groups, weights, dt, opts);
+    // expression button (if one is playing) over the tracked face
+    if (this.poser) { this.poser.step(dt); this.poser.apply(out); }
     // voice layer (mic): mouth reacts to loudness, added before the constraints so it stays in place
     if (this.voice && (this.voice.on || this.voice.env > 0.003)) this.voice.apply(out, this.voiceStrength ?? 1);
     // constraints act on the FINAL (smoothed) weights, so what is shown always satisfies them
@@ -46,12 +48,16 @@ export class Avatar {
     for (const g in out) vrm.blendShapeProxy.setValue(g, out[g]);
     this.applied = out;
     // screen effects: shading eases in/out, the red flash envelope is already shaped by the driver
-    const goal = this.manualTint ? { ...this.fx, red: this.manualTint.red, green: this.manualTint.green } : (mood && weights ? mood : {});
+    let goal = this.manualTint ? { ...this.fx, red: this.manualTint.red, green: this.manualTint.green } : (mood && weights ? mood : {});
+    if (this.poser && !this.manualTint) goal = this.poser.mood(goal);
     const k = Math.min(1, dt * 4);
     for (const key of ['shadeL', 'shadeR', 'green', 'furrow']) this.fx[key] += ((goal[key] || 0) - this.fx[key]) * k;
     this.fx.red = this.manualTint ? this.fx.red + ((goal.red || 0) - this.fx.red) * k : (goal.red || 0);
     if (this.screenFx) this.screenFx.set(this.fx, this.constraints ? this.constraints.browLine(out) : null);
   }
+
+  /** an expression button is playing (the stand-by card stays away meanwhile) */
+  get posing() { return !!(this.poser && this.poser.active); }
 
   update(dt) { if (this.vrm) this.vrm.update(dt); }
 }
