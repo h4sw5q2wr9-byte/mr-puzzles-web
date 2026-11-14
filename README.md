@@ -1,3 +1,14 @@
+# Mr. Puzzles on the web
+
+Two camera apps live on this GitHub Pages site:
+
+| App | Link |
+|---|---|
+| **PuzzleVision Cam**: full Mr. Puzzles VTuber avatar (face, body, mic, recording) | **https://h4sw5q2wr9-byte.github.io/mr-puzzles-web/vtuber/** |
+| **Mr. Puzzles Mirror**: AR filter, his TV head over your camera view | **https://h4sw5q2wr9-byte.github.io/mr-puzzles-web/** |
+
+Open either link in Safari on iPhone (or any modern browser) and allow the camera.
+
 # Mr. Puzzles Mirror - browser AR filter
 
 Open a web page on your iPhone, tap **Start camera**, and **you are Mr. Puzzles**: his TV head follows your head, hides your face,
@@ -31,14 +42,29 @@ same pipeline (`MoodLogic` -> rig bones), rendered by this site in headless Chro
 
 ## PuzzleVision Cam: full-body VTuber app (`/vtuber/`)
 
-A separate app in `vtuber/`. It drives the full **Mr. Puzzles VRM avatar**: face, upper body or
-full body, with the ZAMination-style eyes, brows, rainbow mouth and screen effects. It's live at
-`https://h4sw5q2wr9-byte.github.io/mr-puzzles-web/vtuber/`.
+**Live: https://h4sw5q2wr9-byte.github.io/mr-puzzles-web/vtuber/**
 
-* **Tracking styles:** ZAMination (default), Balanced and Accurate. There are also sliders for
-  expressiveness, eye, brow and mouth exaggeration, and smooth/snappy response. Screen effects (a
-  brief red flash on sudden anger, eyelid/brow shading, optional green) can each be toggled. All
-  settings are remembered on the device.
+A separate app in `vtuber/`. It drives the full **Mr. Puzzles VRM avatar** with ZAMination-style
+eyes, brows, rainbow mouth and screen effects.
+
+* **Tracking modes:** Face, Upper body (arms and hands), Full body (experimental).
+* **Expressive face:**
+  * independent brows (up, down, arched, worried, flat, pinched) with furrow lines;
+  * one-sided smiles and big, tall, squinting, happy, half-lid and droopy eyes;
+  * a red flash on sudden anger.
+
+  A geometric solver keeps the brows above the eyes, the mouth out of the eyes, and everything
+  inside the screen.
+* **🎙︎ Mic:** recordings include your voice. The mouth also reacts to it: it opens with
+  loudness, wobbles per syllable, and sways to one side.
+* **● Rec:** records the avatar and opens the Share sheet on phones.
+* **Quality:** low (flat toon), medium (lit) and high (rendered look).
+* **Settings** (⚙︎, remembered on the device):
+  * tracking style (ZAMination, Balanced, Accurate) and exaggeration sliders
+  * Invert face left/right
+  * "I wear glasses" mode
+  * Background, camera and tracker
+  * Load your own .vrm
 * **Mr. Puzzles is built in.** `vtuber/MrPuzzles.vrm` ships with the site and opens
   automatically. It's kept on the phone and only downloaded again when
   `vtuber/MrPuzzles.version.json` changes. A user's own .vrm (⚙︎ → Advanced) takes priority.
@@ -47,9 +73,9 @@ full body, with the ZAMination-style eyes, brows, rainbow mouth and screen effec
   This is an unofficial, non-commercial fan project.
 * It loads three.js, three-vrm, Kalidokit and MediaPipe from the jsDelivr CDN, so it needs a
   connection.
-* The source of truth is `mr-puzzles-vtuber/app/` and `build/MrPuzzles.vrm` in the private
-  `Claude-Code-Storage` repo (tests, converter and report live there). To update, copy them here and
-  write the VRM's new hash into `MrPuzzles.version.json`.
+* The source of truth is `mr-puzzles-vtuber/` in the private `Claude-Code-Storage` repo (app,
+  converter, tests, report). `scripts/deploy_web.sh` there copies the app and model here, with
+  version stamps so phones always load a matching set of files.
 * The root app's service worker skips `/vtuber/`, so updates show immediately.
 
 ## Run it
